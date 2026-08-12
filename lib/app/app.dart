@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'startup_screen.dart';
 import 'theme.dart';
-import '../features/onboarding/onboarding_screen.dart';
 
 class BhaktiChartApp extends StatelessWidget {
   const BhaktiChartApp({super.key});
@@ -19,7 +19,7 @@ class BhaktiChartApp extends StatelessWidget {
 
       themeMode: ThemeMode.system,
 
-      home: const OnboardingScreen(),
+      home: const StartupScreen(),
     );
   }
 }
