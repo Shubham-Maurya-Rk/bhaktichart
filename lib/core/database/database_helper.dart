@@ -1,18 +1,16 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../constants/app_constants.dart';
-
 class DatabaseHelper {
-  static final DatabaseHelper instance = DatabaseHelper._internal();
+  DatabaseHelper._privateConstructor();
 
-  static Database? _database;
+  static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
 
-  DatabaseHelper._internal();
+  static const String _databaseName = 'bhaktichart.db';
 
-  factory DatabaseHelper() {
-    return instance;
-  }
+  static const int _databaseVersion = 1;
+
+  Database? _database;
 
   Future<Database> get database async {
     if (_database != null) {
@@ -27,91 +25,271 @@ class DatabaseHelper {
   Future<Database> _initDatabase() async {
     final databasesPath = await getDatabasesPath();
 
-    final path = join(databasesPath, AppConstants.databaseName);
+    final path = join(databasesPath, _databaseName);
 
     return await openDatabase(
       path,
-      version: AppConstants.databaseVersion,
+
+      version: _databaseVersion,
+
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
+
       onCreate: _onCreate,
     );
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    // Users
+    // --------------------------------------------------
+    // USERS
+    // --------------------------------------------------
+
     await db.execute('''
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+      )
+    ''');
+
+    // --------------------------------------------------
+    // SADHANA TYPES
+    // --------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE sadhana_types (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        icon TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       )
     ''');
 
-    // Sadhana types
-    await db.execute('''
-      CREATE TABLE sadhana_types (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        icon TEXT NOT NULL,
-        unit TEXT NOT NULL,
-        is_active INTEGER DEFAULT 1
-      )
-    ''');
+    // --------------------------------------------------
+    // DAILY SADHANA
+    // --------------------------------------------------
 
-    // Daily sadhana
     await db.execute('''
       CREATE TABLE daily_sadhana (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        sadhana_type_id INTEGER NOT NULL,
-        value REAL DEFAULT 0,
-        notes TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
 
-        UNIQUE(date, sadhana_type_id),
+        user_id INTEGER NOT NULL,
+
+        date TEXT NOT NULL,
+
+        sadhana_type_id INTEGER NOT NULL,
+
+        value REAL NOT NULL DEFAULT 0,
+
+        unit TEXT,
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE,
 
         FOREIGN KEY (sadhana_type_id)
           REFERENCES sadhana_types(id)
+          ON DELETE CASCADE,
+
+        UNIQUE (
+          user_id,
+          date,
+          sadhana_type_id
+        )
+      )
+    ''');
+
+    // --------------------------------------------------
+    // READING SETTINGS
+    // --------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE reading_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL UNIQUE,
+
+        unit TEXT NOT NULL DEFAULT 'pages',
+
+        updated_at TEXT NOT NULL,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
           ON DELETE CASCADE
       )
     ''');
 
-    // Goals
+    // --------------------------------------------------
+    // AARTI TYPES
+    // --------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE aarti_types (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL,
+
+        name TEXT NOT NULL,
+
+        is_active INTEGER NOT NULL DEFAULT 1,
+
+        sort_order INTEGER NOT NULL DEFAULT 0,
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE,
+
+        UNIQUE (
+          user_id,
+          name
+        )
+      )
+    ''');
+
+    // --------------------------------------------------
+    // DAILY AARTI
+    // --------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE daily_aarti (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL,
+
+        aarti_type_id INTEGER NOT NULL,
+
+        date TEXT NOT NULL,
+
+        created_at TEXT NOT NULL,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE,
+
+        FOREIGN KEY (aarti_type_id)
+          REFERENCES aarti_types(id)
+          ON DELETE CASCADE,
+
+        UNIQUE (
+          user_id,
+          aarti_type_id,
+          date
+        )
+      )
+    ''');
+
+    // --------------------------------------------------
+    // DAY NOTES
+    // --------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE day_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL,
+
+        date TEXT NOT NULL,
+
+        is_starred INTEGER NOT NULL DEFAULT 0,
+
+        note TEXT,
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE,
+
+        UNIQUE (
+          user_id,
+          date
+        )
+      )
+    ''');
+
+    // --------------------------------------------------
+    // GOALS
+    // --------------------------------------------------
+
     await db.execute('''
       CREATE TABLE goals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL,
+
         sadhana_type_id INTEGER NOT NULL,
+
         target_value REAL NOT NULL,
-        period TEXT NOT NULL,
+
+        unit TEXT,
+
+        is_active INTEGER NOT NULL DEFAULT 1,
+
         created_at TEXT NOT NULL,
 
-        FOREIGN KEY (sadhana_type_id)
-          REFERENCES sadhana_types(id)
-          ON DELETE CASCADE
+        updated_at TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE,
+
+        UNIQUE (
+          user_id,
+          sadhana_type_id
+        )
       )
     ''');
 
-    // Settings
-    await db.execute('''
-      CREATE TABLE settings (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      )
-    ''');
+    // --------------------------------------------------
+    // DEFAULT SADHANA TYPES
+    // --------------------------------------------------
 
-    await _insertDefaultSadhanaTypes(db);
-  }
+    final now = DateTime.now().toIso8601String();
 
-  Future<void> _insertDefaultSadhanaTypes(Database db) async {
-    final types = [
-      {'name': 'Chanting', 'icon': '📿', 'unit': 'rounds'},
-      {'name': 'Reading', 'icon': '📖', 'unit': 'minutes'},
-      {'name': 'Hearing', 'icon': '🎧', 'unit': 'minutes'},
-      {'name': 'Aarti', 'icon': '🪔', 'unit': 'count'},
-    ];
+    await db.insert('sadhana_types', {
+      'name': 'Chanting',
+      'icon': '📿',
+      'is_active': 1,
+      'sort_order': 1,
+      'created_at': now,
+    });
 
-    for (final type in types) {
-      await db.insert('sadhana_types', type);
-    }
+    await db.insert('sadhana_types', {
+      'name': 'Reading',
+      'icon': '📖',
+      'is_active': 1,
+      'sort_order': 2,
+      'created_at': now,
+    });
+
+    await db.insert('sadhana_types', {
+      'name': 'Hearing',
+      'icon': '🎧',
+      'is_active': 1,
+      'sort_order': 3,
+      'created_at': now,
+    });
+
+    await db.insert('sadhana_types', {
+      'name': 'Aarti',
+      'icon': '🪔',
+      'is_active': 1,
+      'sort_order': 4,
+      'created_at': now,
+    });
   }
 }

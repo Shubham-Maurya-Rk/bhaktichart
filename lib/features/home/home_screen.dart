@@ -1,8 +1,14 @@
+import 'package:bhaktichart/core/utils/date_utils.dart';
+import 'package:bhaktichart/models/aarti_type_model.dart';
+import 'package:bhaktichart/models/daily_aarti_model.dart';
+import 'package:bhaktichart/models/daily_sadhana_model.dart';
+import 'package:bhaktichart/models/day_note_model.dart';
+import 'package:bhaktichart/models/goal_model.dart';
+import 'package:bhaktichart/models/sadhana_type_model.dart';
+import 'package:bhaktichart/repositories/sadhana_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
-
-import '../onboarding/onboarding_repository.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,70 +18,183 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final OnboardingRepository _repository = OnboardingRepository();
+  // ============================================================
+  // REPOSITORY
+  // ============================================================
 
+  final SadhanaRepository _repository = SadhanaRepository();
+
+  // ============================================================
+  // USER
+  // ============================================================
+
+  int? _userId;
   String _name = '';
 
-  DateTime _focusedDay = DateTime.now();
+  // ============================================================
+  // CALENDAR
+  // ============================================================
 
+  DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay = DateTime.now();
 
-  String _selectedSadhana = 'Chanting';
+  // ============================================================
+  // SADHANA TYPES
+  // ============================================================
 
-  final List<Map<String, dynamic>> _sadhanaTypes = [
-    {'name': 'Chanting', 'icon': '📿', 'unit': 'rounds'},
-    {'name': 'Reading', 'icon': '📖', 'unit': 'minutes'},
-    {'name': 'Hearing', 'icon': '🎧', 'unit': 'minutes'},
-    {'name': 'Aarti', 'icon': '🪔', 'unit': 'count'},
-  ];
+  List<SadhanaTypeModel> _sadhanaTypes = [];
 
-  // Temporary data.
-  //
-  // Later this will come directly from SQLite.
-  final Map<String, Map<String, double>> _demoData = {
-    '2026-08-01': {'Chanting': 8},
-    '2026-08-02': {'Chanting': 12},
-    '2026-08-03': {'Chanting': 16},
-    '2026-08-04': {'Chanting': 10},
-    '2026-08-05': {'Chanting': 20},
-    '2026-08-06': {'Chanting': 4},
-    '2026-08-07': {'Chanting': 16},
-    '2026-08-08': {'Chanting': 12},
-    '2026-08-09': {'Chanting': 16},
-    '2026-08-10': {'Chanting': 8},
-    '2026-08-11': {'Chanting': 20},
-  };
+  int? _selectedSadhanaTypeId;
+
+  // ============================================================
+  // MONTHLY DATA
+  // ============================================================
+
+  Map<String, double> _monthlySadhana = {};
+  Map<String, int> _monthlyAarti = {};
+
+  // ============================================================
+  // GOAL
+  // ============================================================
+
+  GoalModel? _currentGoal;
+
+  // ============================================================
+  // LOADING
+  // ============================================================
+
+  bool _isLoading = true;
+
+  // ============================================================
+  // INIT
+  // ============================================================
 
   @override
   void initState() {
     super.initState();
 
-    _loadUser();
+    _loadHomeData();
   }
 
-  Future<void> _loadUser() async {
-    final user = await _repository.getUser();
+  // ============================================================
+  // LOAD HOME DATA
+  // ============================================================
 
-    if (!mounted) return;
+  Future<void> _loadHomeData() async {
+    try {
+      final user = await _repository.getUser();
 
-    setState(() {
-      _name = user?.name ?? '';
-    });
+      if (user == null || user.id == null) {
+        return;
+      }
+
+      final types = await _repository.getSadhanaTypes();
+
+      if (!mounted) return;
+
+      setState(() {
+        _userId = user.id;
+        _name = user.name;
+        _sadhanaTypes = types;
+      });
+
+      if (types.isNotEmpty) {
+        final chanting = types.cast<SadhanaTypeModel?>().firstWhere(
+          (type) => type?.name.toLowerCase() == 'chanting',
+          orElse: () => types.first,
+        );
+
+        if (mounted) {
+          setState(() {
+            _selectedSadhanaTypeId = chanting?.id;
+          });
+        }
+      }
+
+      await _loadMonthlyData();
+    } catch (e) {
+      debugPrint('Error loading home data: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
-  String _dateKey(DateTime date) {
-    return DateFormat('yyyy-MM-dd').format(date);
-  }
+  // ============================================================
+  // LOAD MONTH DATA
+  // ============================================================
 
-  double _getValueForDay(DateTime day) {
-    final data = _demoData[_dateKey(day)];
-
-    if (data == null) {
-      return 0;
+  Future<void> _loadMonthlyData() async {
+    if (_userId == null || _selectedSadhanaTypeId == null) {
+      return;
     }
 
-    return data[_selectedSadhana] ?? 0;
+    try {
+      final startDate = AppDateUtils.monthStart(_focusedDay);
+
+      final endDate = AppDateUtils.monthEnd(_focusedDay);
+
+      final records = await _repository.getSadhanaForMonth(
+        _userId!,
+        startDate,
+        endDate,
+      );
+      final aartiRecords = await _repository.getAartiAttendanceForMonth(
+        _userId!,
+        startDate,
+        endDate,
+      );
+
+      final Map<String, int> aartiData = {};
+
+      for (final record in aartiRecords) {
+        aartiData[record.date] = (aartiData[record.date] ?? 0) + 1;
+      }
+
+      final Map<String, double> data = {};
+
+      for (final record in records) {
+        if (record.sadhanaTypeId == _selectedSadhanaTypeId) {
+          data[record.date] = record.value;
+        }
+      }
+
+      final goal = await _repository.getGoal(_userId!, _selectedSadhanaTypeId!);
+
+      if (!mounted) return;
+
+      setState(() {
+        _monthlySadhana = data;
+        _monthlyAarti = aartiData;
+        _currentGoal = goal;
+      });
+    } catch (e) {
+      debugPrint('Error loading monthly data: $e');
+    }
   }
+
+  // ============================================================
+  // DATE KEY
+  // ============================================================
+
+  String _dateKey(DateTime date) {
+    return AppDateUtils.formatDate(date);
+  }
+
+  // ============================================================
+  // GET VALUE FOR DAY
+  // ============================================================
+
+  double _getValueForDay(DateTime day) {
+    return _monthlySadhana[_dateKey(day)] ?? 0;
+  }
+
+  // ============================================================
+  // FORMAT VALUE
+  // ============================================================
 
   String _formatValue(double value) {
     if (value == value.roundToDouble()) {
@@ -85,53 +204,125 @@ class _HomeScreenState extends State<HomeScreen> {
     return value.toStringAsFixed(1);
   }
 
+  // ============================================================
+  // SELECTED SADHANA
+  // ============================================================
+
+  SadhanaTypeModel? get _selectedSadhana {
+    if (_selectedSadhanaTypeId == null) {
+      return null;
+    }
+
+    try {
+      return _sadhanaTypes.firstWhere(
+        (type) => type.id == _selectedSadhanaTypeId,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ============================================================
+  // SADHANA ICON
+  // ============================================================
+
+  String _getSadhanaIcon() {
+    return _selectedSadhana?.icon ?? '🙏';
+  }
+
+  // ============================================================
+  // SADHANA UNIT
+  // ============================================================
+
+  String _getDefaultUnit() {
+    final name = _selectedSadhana?.name.toLowerCase();
+
+    switch (name) {
+      case 'chanting':
+        return 'rounds';
+
+      case 'hearing':
+        return 'minutes';
+
+      case 'reading':
+        return 'pages';
+
+      default:
+        return 'times';
+    }
+  }
+
+  // ============================================================
+  // HEATMAP COLOR
+  // ============================================================
+
   Color _getHeatColor(BuildContext context, double value) {
     final colorScheme = Theme.of(context).colorScheme;
 
     if (value <= 0) {
-      return Colors.transparent;
+      return colorScheme.surfaceContainerHighest.withValues(alpha: 0.35);
     }
 
-    if (value < 4) {
-      return colorScheme.primary.withValues(alpha: 0.15);
+    final goal = _currentGoal?.targetValue ?? 16;
+
+    if (goal <= 0) {
+      return colorScheme.primary;
     }
 
-    if (value < 8) {
-      return colorScheme.primary.withValues(alpha: 0.30);
+    final percentage = (value / goal).clamp(0.0, 1.0);
+
+    if (percentage < 0.25) {
+      return colorScheme.primary.withValues(alpha: 0.18);
     }
 
-    if (value < 12) {
-      return colorScheme.primary.withValues(alpha: 0.45);
+    if (percentage < 0.50) {
+      return colorScheme.primary.withValues(alpha: 0.35);
     }
 
-    if (value < 16) {
-      return colorScheme.primary.withValues(alpha: 0.65);
+    if (percentage < 0.75) {
+      return colorScheme.primary.withValues(alpha: 0.55);
+    }
+
+    if (percentage < 1.0) {
+      return colorScheme.primary.withValues(alpha: 0.75);
     }
 
     return colorScheme.primary;
   }
 
-  String _getSadhanaIcon() {
-    final result = _sadhanaTypes.firstWhere(
-      (item) => item['name'] == _selectedSadhana,
-    );
+  // ============================================================
+  // SELECT SADHANA
+  // ============================================================
 
-    return result['icon'] as String;
+  Future<void> _selectSadhana(SadhanaTypeModel type) async {
+    if (type.id == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedSadhanaTypeId = type.id;
+      _monthlySadhana = {};
+      _currentGoal = null;
+    });
+
+    Navigator.pop(context);
+
+    await _loadMonthlyData();
   }
 
-  String _getSadhanaUnit() {
-    final result = _sadhanaTypes.firstWhere(
-      (item) => item['name'] == _selectedSadhana,
-    );
-
-    return result['unit'] as String;
-  }
+  // ============================================================
+  // SADHANA SELECTOR
+  // ============================================================
 
   void _showSadhanaSelector() {
+    if (_sadhanaTypes.isEmpty) {
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
-      builder: (context) {
+      builder: (sheetContext) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -147,39 +338,34 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 16),
 
                 ..._sadhanaTypes.map((sadhana) {
-                  final name = sadhana['name'] as String;
-
-                  final icon = sadhana['icon'] as String;
-
-                  final selected = name == _selectedSadhana;
+                  final selected = sadhana.id == _selectedSadhanaTypeId;
 
                   return ListTile(
-                    leading: Text(icon, style: const TextStyle(fontSize: 28)),
+                    leading: Text(
+                      sadhana.icon ?? '🙏',
+                      style: const TextStyle(fontSize: 28),
+                    ),
 
                     title: Text(
-                      name,
+                      sadhana.name,
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
 
                     trailing: selected
                         ? Icon(
                             Icons.check_circle,
-                            color: Theme.of(context).colorScheme.primary,
+                            color: Theme.of(sheetContext).colorScheme.primary,
                           )
                         : null,
+
+                    selected: selected,
 
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
 
-                    selected: selected,
-
                     onTap: () {
-                      setState(() {
-                        _selectedSadhana = name;
-                      });
-
-                      Navigator.pop(context);
+                      _selectSadhana(sadhana);
                     },
                   );
                 }),
@@ -191,121 +377,1008 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showSadhanaEntry(DateTime day) {
-    final currentValue = _getValueForDay(day);
+  // ============================================================
+  // CALENDAR DAY CLICK
+  // ============================================================
 
-    final controller = TextEditingController(
-      text: currentValue > 0 ? _formatValue(currentValue) : '',
+  void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
+    final today = DateTime.now();
+
+    final selected = DateTime(
+      selectedDay.year,
+      selectedDay.month,
+      selectedDay.day,
     );
 
-    final formattedDate = DateFormat('EEEE, d MMMM').format(day);
+    final currentDay = DateTime(today.year, today.month, today.day);
 
-    showModalBottomSheet(
+    // Don't allow future dates.
+    if (selected.isAfter(currentDay)) {
+      return;
+    }
+
+    setState(() {
+      _selectedDay = selectedDay;
+      _focusedDay = focusedDay;
+    });
+
+    _showDaySadhanaSheet(selectedDay);
+  }
+
+  // ============================================================
+  // DAY SADHANA SHEET
+  // ============================================================
+
+  Future<void> _showDaySadhanaSheet(DateTime day) async {
+    if (_userId == null) {
+      return;
+    }
+
+    final type = _selectedSadhana;
+
+    if (type == null) {
+      return;
+    }
+
+    if (type.name.toLowerCase() == 'aarti') {
+      await _showAartiSheet(day);
+      return;
+    }
+
+    await _showValueSadhanaSheet(day, type);
+  }
+
+  // ============================================================
+  // VALUE SADHANA SHEET
+  // ============================================================
+
+  Future<void> _showValueSadhanaSheet(
+    DateTime day,
+    SadhanaTypeModel type,
+  ) async {
+    final existing = await _repository.getSadhana(
+      _userId!,
+      _dateKey(day),
+      type.id!,
+    );
+
+    final existingNote = await _repository.getDayNote(_userId!, _dateKey(day));
+
+    String readingUnit = 'pages';
+
+    if (type.name.toLowerCase() == 'reading') {
+      if (existing != null && existing.unit!.isNotEmpty) {
+        readingUnit = existing.unit!;
+      } else {
+        final settings = await _repository.getReadingSettings(_userId!);
+
+        readingUnit = settings?.unit ?? 'pages';
+      }
+    }
+
+    String selectedReadingUnit = readingUnit;
+
+    if (type.name.toLowerCase() == 'reading') {
+      if (existing != null && existing.unit!.isNotEmpty) {
+        // Use the unit that was actually used
+        // when this day's reading was saved.
+        readingUnit = existing.unit!;
+      } else {
+        // New reading entry.
+        final settings = await _repository.getReadingSettings(_userId!);
+
+        readingUnit = settings?.unit ?? 'pages';
+      }
+    }
+
+    final controller = TextEditingController(
+      text: existing != null && existing.value > 0
+          ? _formatValue(existing.value)
+          : '',
+    );
+
+    final noteController = TextEditingController(
+      text: existingNote?.note ?? '',
+    );
+
+    bool isStarred = existingNote?.isStarred ?? false;
+
+    if (!mounted) return;
+
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final theme = Theme.of(context);
 
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 8,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-          ),
+            final isReading = type.name.toLowerCase() == 'reading';
 
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                formattedDate,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+            final unit = isReading ? selectedReadingUnit : _getDefaultUnit();
+
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 8,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 24,
                 ),
-              ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      DateFormat('EEEE, d MMMM yyyy').format(day),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
 
-              const SizedBox(height: 8),
+                    const SizedBox(height: 8),
 
-              Text(
-                '${_getSadhanaIcon()} $_selectedSadhana',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              TextField(
-                controller: controller,
-
-                autofocus: true,
-
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-
-                textAlign: TextAlign.center,
-
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
-
-                decoration: InputDecoration(
-                  hintText: '0',
-                  suffixText: _getSadhanaUnit(),
-
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-
-                child: FilledButton(
-                  onPressed: () {
-                    final value = double.tryParse(controller.text.trim());
-
-                    if (value == null || value < 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Please enter a valid number'),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          type.icon ?? '🙏',
+                          style: const TextStyle(fontSize: 28),
                         ),
-                      );
+                        const SizedBox(width: 8),
+                        Text(
+                          type.name,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
 
-                      return;
-                    }
+                    const SizedBox(height: 20),
 
-                    setState(() {
-                      _demoData[_dateKey(day)] ??= {};
+                    if (isReading) ...[
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Reading measured in',
+                          style: theme.textTheme.labelLarge,
+                        ),
+                      ),
 
-                      _demoData[_dateKey(day)]![_selectedSadhana] = value;
-                    });
+                      const SizedBox(height: 8),
 
-                    Navigator.pop(context);
-                  },
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(
+                            value: 'pages',
+                            label: Text('Pages'),
+                            icon: Icon(Icons.menu_book),
+                          ),
+                          ButtonSegment(
+                            value: 'shlokas',
+                            label: Text('Shlokas'),
+                            icon: Icon(Icons.format_quote),
+                          ),
+                          ButtonSegment(
+                            value: 'minutes',
+                            label: Text('Minutes'),
+                            icon: Icon(Icons.timer_outlined),
+                          ),
+                        ],
+                        selected: {selectedReadingUnit},
+                        onSelectionChanged: (values) {
+                          setSheetState(() {
+                            selectedReadingUnit = values.first;
+                          });
+                        },
+                      ),
 
-                  child: const Text(
-                    'SAVE',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
+                      const SizedBox(height: 20),
+                    ],
+
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: '0',
+                        suffixText: unit,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // STAR
+                    Card(
+                      child: SwitchListTile(
+                        value: isStarred,
+                        onChanged: (value) {
+                          setSheetState(() {
+                            isStarred = value;
+                          });
+                        },
+                        secondary: Icon(
+                          isStarred ? Icons.star : Icons.star_border,
+                          color: isStarred ? Colors.amber : null,
+                        ),
+                        title: const Text(
+                          'Important day',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: const Text(
+                          'Star this day so you remember it',
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    // NOTE
+                    TextField(
+                      controller: noteController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Note about this day',
+                        hintText: 'Write something you want to remember...',
+                        prefixIcon: const Icon(Icons.sticky_note_2_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: FilledButton.icon(
+                        onPressed: () async {
+                          final value = double.tryParse(controller.text.trim());
+
+                          if (value == null || value < 0) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Please enter a valid number'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          final now = DateTime.now().toIso8601String();
+
+                          final sadhana = DailySadhanaModel(
+                            userId: _userId!,
+                            date: _dateKey(day),
+                            sadhanaTypeId: type.id!,
+                            value: value,
+                            unit: unit,
+                            createdAt: now,
+                            updatedAt: now,
+                          );
+
+                          await _repository.saveSadhana(sadhana);
+
+                          final note = DayNoteModel(
+                            userId: _userId!,
+                            date: _dateKey(day),
+                            isStarred: isStarred,
+                            note: noteController.text.trim().isEmpty
+                                ? null
+                                : noteController.text.trim(),
+                            createdAt: now,
+                            updatedAt: now,
+                          );
+
+                          await _repository.saveDayNote(note);
+
+                          await _loadMonthlyData();
+
+                          if (!context.mounted) {
+                            return;
+                          }
+
+                          Navigator.pop(context);
+                        },
+                        icon: const Icon(Icons.check),
+                        label: const Text(
+                          'SAVE',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
   }
 
+  // ============================================================
+  // AARTI SHEET
+  // ============================================================
+
+  Future<void> _showAartiSheet(DateTime day) async {
+    if (_userId == null) return;
+
+    final aartiTypes = await _repository.getAartiTypes(_userId!);
+
+    final attendance = await _repository.getAartiAttendance(
+      _userId!,
+      _dateKey(day),
+    );
+
+    final selectedIds = attendance.map((e) => e.aartiTypeId).toSet();
+
+    final existingNote = await _repository.getDayNote(_userId!, _dateKey(day));
+
+    bool isStarred = existingNote?.isStarred ?? false;
+
+    final noteController = TextEditingController(
+      text: existingNote?.note ?? '',
+    );
+
+    if (!mounted) return;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 8,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      DateFormat('EEEE, d MMMM yyyy').format(day),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('🪔', style: TextStyle(fontSize: 30)),
+                        SizedBox(width: 8),
+                        Text(
+                          'Aarti Attendance',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    if (aartiTypes.isEmpty)
+                      _buildNoAartiMessage(context)
+                    else
+                      ...aartiTypes.map((aarti) {
+                        final id = aarti.id;
+
+                        if (id == null) {
+                          return const SizedBox();
+                        }
+
+                        final selected = selectedIds.contains(id);
+
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: CheckboxListTile(
+                            value: selected,
+                            onChanged: (value) {
+                              setSheetState(() {
+                                if (value == true) {
+                                  selectedIds.add(id);
+                                } else {
+                                  selectedIds.remove(id);
+                                }
+                              });
+                            },
+                            title: Text(
+                              aarti.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            secondary: const Text(
+                              '🪔',
+                              style: TextStyle(fontSize: 24),
+                            ),
+                          ),
+                        );
+                      }),
+
+                    const SizedBox(height: 8),
+
+                    // ADD AARTI
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final added = await _showAddAartiDialog();
+
+                        if (added == true) {
+                          Navigator.pop(context);
+
+                          await _showAartiSheet(day);
+                        }
+                      },
+                      icon: const Icon(Icons.add),
+                      label: const Text('ADD MY AARTI'),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // STAR
+                    Card(
+                      child: SwitchListTile(
+                        value: isStarred,
+                        onChanged: (value) {
+                          setSheetState(() {
+                            isStarred = value;
+                          });
+                        },
+                        secondary: Icon(
+                          isStarred ? Icons.star : Icons.star_border,
+                          color: isStarred ? Colors.amber : null,
+                        ),
+                        title: const Text(
+                          'Important day',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: const Text('Star this day'),
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    // NOTE
+                    TextField(
+                      controller: noteController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Note about this day',
+                        hintText: 'Write something to remember...',
+                        prefixIcon: const Icon(Icons.sticky_note_2_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    SizedBox(
+                      height: 52,
+                      child: FilledButton.icon(
+                        onPressed: () async {
+                          final now = DateTime.now().toIso8601String();
+
+                          // Save attendance
+                          for (final aarti in aartiTypes) {
+                            final id = aarti.id;
+
+                            if (id == null) {
+                              continue;
+                            }
+
+                            if (selectedIds.contains(id)) {
+                              await _repository.saveAartiAttendance(
+                                DailyAartiModel(
+                                  userId: _userId!,
+                                  aartiTypeId: id,
+                                  date: _dateKey(day),
+                                  createdAt: now,
+                                ),
+                              );
+                            } else {
+                              await _repository.removeAartiAttendance(
+                                _userId!,
+                                id,
+                                _dateKey(day),
+                              );
+                            }
+                          }
+
+                          final note = DayNoteModel(
+                            userId: _userId!,
+                            date: _dateKey(day),
+                            isStarred: isStarred,
+                            note: noteController.text.trim().isEmpty
+                                ? null
+                                : noteController.text.trim(),
+                            createdAt: now,
+                            updatedAt: now,
+                          );
+
+                          await _repository.saveDayNote(note);
+
+                          if (!context.mounted) {
+                            return;
+                          }
+
+                          Navigator.pop(context);
+                        },
+                        icon: const Icon(Icons.check),
+                        label: const Text(
+                          'SAVE',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    await _loadMonthlyData();
+  }
+
+  // ============================================================
+  // NO AARTI MESSAGE
+  // ============================================================
+
+  Widget _buildNoAartiMessage(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: const Column(
+        children: [
+          Text('🪔', style: TextStyle(fontSize: 40)),
+          SizedBox(height: 8),
+          Text(
+            'No Aarti added yet',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+          ),
+          SizedBox(height: 4),
+          Text('Add your regular Aartis below.', textAlign: TextAlign.center),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // ADD AARTI
+  // ============================================================
+
+  Future<bool?> _showAddAartiDialog() async {
+    final controller = TextEditingController();
+
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Add Aarti'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Aarti name',
+              hintText: 'Example: Mangal Aarti',
+              prefixIcon: Icon(Icons.auto_awesome),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('CANCEL'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final name = controller.text.trim();
+
+                if (name.isEmpty) {
+                  return;
+                }
+
+                if (_userId == null) {
+                  return;
+                }
+
+                try {
+                  final now = DateTime.now().toIso8601String();
+
+                  await _repository.addAarti(
+                    AartiTypeModel(
+                      userId: _userId!,
+                      name: name,
+                      sortOrder: 0,
+                      createdAt: now,
+                    ),
+                  );
+
+                  if (!dialogContext.mounted) {
+                    return;
+                  }
+
+                  Navigator.pop(dialogContext, true);
+                } catch (e) {
+                  if (!dialogContext.mounted) {
+                    return;
+                  }
+
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('This Aarti may already exist.'),
+                    ),
+                  );
+                }
+              },
+              child: const Text('ADD'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ============================================================
+  // STREAK
+  // ============================================================
+
+  int _calculateCurrentStreak() {
+    if (_monthlySadhana.isEmpty) {
+      return 0;
+    }
+
+    DateTime date = DateTime.now();
+
+    int streak = 0;
+
+    while (true) {
+      final value = _getValueForDay(date);
+
+      if (value <= 0) {
+        break;
+      }
+
+      streak++;
+
+      date = date.subtract(const Duration(days: 1));
+
+      if (streak > 3650) {
+        break;
+      }
+    }
+
+    return streak;
+  }
+
+  // ============================================================
+  // STREAK CARD
+  // ============================================================
+
+  Widget _buildStreakCard(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final streak = _calculateCurrentStreak();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: Text('🔥', style: TextStyle(fontSize: 26)),
+              ),
+            ),
+
+            const SizedBox(width: 14),
+
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Current Streak', style: TextStyle(fontSize: 14)),
+
+                  const SizedBox(height: 2),
+
+                  Text(
+                    '$streak ${streak == 1 ? 'Day' : 'Days'}',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const Icon(Icons.local_fire_department),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // SADHANA SELECTOR CARD
+  // ============================================================
+
+  Widget _buildSadhanaSelector(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: _showSadhanaSelector,
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Text(_getSadhanaIcon(), style: const TextStyle(fontSize: 26)),
+
+              const SizedBox(width: 12),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Showing', style: theme.textTheme.bodySmall),
+
+                    Text(
+                      _selectedSadhana?.name ?? 'Sadhana',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const Icon(Icons.keyboard_arrow_down),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // CALENDAR
+  // ============================================================
+
+  Widget _buildCalendar(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: TableCalendar(
+          firstDay: DateTime(2020),
+          lastDay: DateTime(2100),
+
+          focusedDay: _focusedDay,
+
+          selectedDayPredicate: (day) {
+            return isSameDay(_selectedDay, day);
+          },
+
+          enabledDayPredicate: (day) {
+            final today = DateTime.now();
+
+            final currentDay = DateTime(today.year, today.month, today.day);
+
+            final calendarDay = DateTime(day.year, day.month, day.day);
+
+            return !calendarDay.isAfter(currentDay);
+          },
+
+          onDaySelected: _onDaySelected,
+
+          onPageChanged: (focusedDay) async {
+            setState(() {
+              _focusedDay = focusedDay;
+            });
+
+            await _loadMonthlyData();
+          },
+
+          calendarFormat: CalendarFormat.month,
+
+          headerStyle: const HeaderStyle(
+            titleCentered: true,
+            formatButtonVisible: false,
+            leftChevronIcon: Icon(Icons.chevron_left),
+            rightChevronIcon: Icon(Icons.chevron_right),
+          ),
+
+          daysOfWeekStyle: DaysOfWeekStyle(
+            weekdayStyle: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            weekendStyle: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+
+          calendarStyle: const CalendarStyle(
+            outsideDaysVisible: false,
+            isTodayHighlighted: false,
+            markersMaxCount: 0,
+          ),
+
+          calendarBuilders: CalendarBuilders(
+            defaultBuilder: (context, day, focusedDay) {
+              return _buildCalendarCell(context, day);
+            },
+
+            todayBuilder: (context, day, focusedDay) {
+              return _buildCalendarCell(context, day, isToday: true);
+            },
+
+            selectedBuilder: (context, day, focusedDay) {
+              return _buildCalendarCell(context, day, isSelected: true);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // CALENDAR CELL
+  // ============================================================
+
+  Widget _buildCalendarCell(
+    BuildContext context,
+    DateTime day, {
+    bool isToday = false,
+    bool isSelected = false,
+  }) {
+    final theme = Theme.of(context);
+
+    final isAarti = _selectedSadhana?.name.toLowerCase() == 'aarti';
+
+    final double value = isAarti
+        ? (_monthlyAarti[_dateKey(day)] ?? 0).toDouble()
+        : _getValueForDay(day);
+
+    final heatColor = _getHeatColor(context, value);
+
+    final hasValue = value > 0;
+
+    return Container(
+      margin: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: heatColor,
+        borderRadius: BorderRadius.circular(10),
+        border: isSelected
+            ? Border.all(color: theme.colorScheme.primary, width: 2)
+            : isToday
+            ? Border.all(color: theme.colorScheme.primary, width: 2)
+            : null,
+      ),
+      child: Stack(
+        children: [
+          // DATE
+          Positioned(
+            top: 5,
+            right: 6,
+            child: Text(
+              '${day.day}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isToday || isSelected
+                    ? FontWeight.bold
+                    : FontWeight.normal,
+              ),
+            ),
+          ),
+
+          // VALUE
+          Center(
+            child: hasValue
+                ? Text(
+                    _formatValue(value),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: value >= (_currentGoal?.targetValue ?? 16)
+                          ? theme.colorScheme.onPrimary
+                          : theme.colorScheme.onSurface,
+                    ),
+                  )
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // TODAY BUTTON
+  // ============================================================
+
+  Widget _buildTodayButton(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return FilledButton.icon(
+      onPressed: () {
+        final today = DateTime.now();
+
+        setState(() {
+          _selectedDay = today;
+          _focusedDay = today;
+        });
+
+        _showDaySadhanaSheet(today);
+      },
+      icon: const Icon(Icons.add),
+      label: const Text(
+        "UPDATE TODAY'S SADHANA",
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ),
+      style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(54),
+        backgroundColor: theme.colorScheme.primary,
+      ),
+    );
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -334,10 +1407,8 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-
             children: [
               _buildStreakCard(context),
 
@@ -355,268 +1426,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildStreakCard(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-
-        child: Row(
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                shape: BoxShape.circle,
-              ),
-
-              child: const Center(
-                child: Text('🔥', style: TextStyle(fontSize: 26)),
-              ),
-            ),
-
-            const SizedBox(width: 14),
-
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Current Streak', style: TextStyle(fontSize: 14)),
-
-                  SizedBox(height: 2),
-
-                  Text(
-                    '7 Days',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-            ),
-
-            const Icon(Icons.chevron_right),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSadhanaSelector(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-
-      onTap: _showSadhanaSelector,
-
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-
-          child: Row(
-            children: [
-              Text(_getSadhanaIcon(), style: const TextStyle(fontSize: 26)),
-
-              const SizedBox(width: 12),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Showing', style: theme.textTheme.bodySmall),
-
-                    Text(
-                      _selectedSadhana,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const Icon(Icons.keyboard_arrow_down),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCalendar(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-
-        child: TableCalendar(
-          firstDay: DateTime(2020),
-          lastDay: DateTime(2100),
-
-          focusedDay: _focusedDay,
-
-          selectedDayPredicate: (day) {
-            return isSameDay(_selectedDay, day);
-          },
-
-          onDaySelected: (selectedDay, focusedDay) {
-            setState(() {
-              _selectedDay = selectedDay;
-
-              _focusedDay = focusedDay;
-            });
-
-            _showSadhanaEntry(selectedDay);
-          },
-
-          onPageChanged: (focusedDay) {
-            _focusedDay = focusedDay;
-          },
-
-          calendarFormat: CalendarFormat.month,
-
-          headerStyle: const HeaderStyle(
-            titleCentered: true,
-            formatButtonVisible: false,
-            leftChevronIcon: Icon(Icons.chevron_left),
-            rightChevronIcon: Icon(Icons.chevron_right),
-          ),
-
-          daysOfWeekStyle: DaysOfWeekStyle(
-            weekdayStyle: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            weekendStyle: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-
-          calendarStyle: const CalendarStyle(
-            outsideDaysVisible: false,
-            isTodayHighlighted: true,
-            markersMaxCount: 0,
-          ),
-
-          calendarBuilders: CalendarBuilders(
-            defaultBuilder: (context, day, focusedDay) {
-              return _buildCalendarCell(context, day);
-            },
-
-            todayBuilder: (context, day, focusedDay) {
-              return _buildCalendarCell(context, day, isToday: true);
-            },
-
-            selectedBuilder: (context, day, focusedDay) {
-              return _buildCalendarCell(context, day, isSelected: true);
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCalendarCell(
-    BuildContext context,
-    DateTime day, {
-    bool isToday = false,
-    bool isSelected = false,
-  }) {
-    final theme = Theme.of(context);
-
-    final value = _getValueForDay(day);
-
-    final heatColor = _getHeatColor(context, value);
-
-    final hasValue = value > 0;
-
-    return Container(
-      margin: const EdgeInsets.all(2),
-
-      decoration: BoxDecoration(
-        color: heatColor,
-
-        borderRadius: BorderRadius.circular(10),
-
-        border: isSelected
-            ? Border.all(color: theme.colorScheme.primary, width: 2)
-            : isToday
-            ? Border.all(
-                color: theme.colorScheme.primary.withValues(alpha: 0.5),
-              )
-            : null,
-      ),
-
-      child: Stack(
-        children: [
-          Positioned(
-            top: 5,
-            right: 6,
-
-            child: Text(
-              '${day.day}',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isToday || isSelected
-                    ? FontWeight.bold
-                    : FontWeight.normal,
-              ),
-            ),
-          ),
-
-          Center(
-            child: hasValue
-                ? Text(
-                    _formatValue(value),
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: value >= 16
-                          ? theme.colorScheme.onPrimary
-                          : theme.colorScheme.onSurface,
-                    ),
-                  )
-                : null,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTodayButton(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return FilledButton.icon(
-      onPressed: () {
-        final today = DateTime.now();
-
-        setState(() {
-          _selectedDay = today;
-          _focusedDay = today;
-        });
-
-        _showSadhanaEntry(today);
-      },
-
-      icon: const Icon(Icons.add),
-
-      label: const Text(
-        "UPDATE TODAY'S SADHANA",
-        style: TextStyle(fontWeight: FontWeight.bold),
-      ),
-
-      style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(54),
-
-        backgroundColor: theme.colorScheme.primary,
       ),
     );
   }

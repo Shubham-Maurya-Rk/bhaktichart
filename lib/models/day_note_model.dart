@@ -1,20 +1,18 @@
-class DailySadhanaModel {
+class DayNoteModel {
   final int? id;
   final int userId;
   final String date;
-  final int sadhanaTypeId;
-  final double value;
-  final String? unit;
+  final bool isStarred;
+  final String? note;
   final String createdAt;
   final String? updatedAt;
 
-  const DailySadhanaModel({
+  const DayNoteModel({
     this.id,
     required this.userId,
     required this.date,
-    required this.sadhanaTypeId,
-    required this.value,
-    this.unit,
+    this.isStarred = false,
+    this.note,
     required this.createdAt,
     this.updatedAt,
   });
@@ -24,22 +22,20 @@ class DailySadhanaModel {
       'id': id,
       'user_id': userId,
       'date': date,
-      'sadhana_type_id': sadhanaTypeId,
-      'value': value,
-      'unit': unit,
+      'is_starred': isStarred ? 1 : 0,
+      'note': note,
       'created_at': createdAt,
       'updated_at': updatedAt,
     };
   }
 
-  factory DailySadhanaModel.fromMap(Map<String, dynamic> map) {
-    return DailySadhanaModel(
+  factory DayNoteModel.fromMap(Map<String, dynamic> map) {
+    return DayNoteModel(
       id: map['id'] as int?,
       userId: map['user_id'] as int,
       date: map['date'] as String,
-      sadhanaTypeId: map['sadhana_type_id'] as int,
-      value: (map['value'] as num).toDouble(),
-      unit: map['unit'] as String?,
+      isStarred: map['is_starred'] == 1,
+      note: map['note'] as String?,
       createdAt: map['created_at'] as String,
       updatedAt: map['updated_at'] as String?,
     );

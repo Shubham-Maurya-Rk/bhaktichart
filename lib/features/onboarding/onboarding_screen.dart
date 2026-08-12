@@ -1,3 +1,4 @@
+import 'package:bhaktichart/repositories/sadhana_repository.dart';
 import 'package:flutter/material.dart';
 import 'onboarding_repository.dart';
 
@@ -12,7 +13,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final TextEditingController _nameController = TextEditingController();
-  final OnboardingRepository _repository = OnboardingRepository();
+  final _repository = SadhanaRepository();
   bool _isLoading = false;
 
   Future<void> _continue() async {
@@ -31,7 +32,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     });
 
     try {
-      await _repository.saveUser(name);
+      await _repository.createUser(name);
 
       if (!mounted) return;
 
@@ -64,125 +65,138 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     return Scaffold(
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-
-            children: [
-              const Spacer(),
-
-              // Logo
-              Center(
-                child: Container(
-                  width: 100,
-                  height: 100,
-
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer,
-
-                    shape: BoxShape.circle,
-                  ),
-
-                  child: const Center(
-                    child: Text('🙏', style: TextStyle(fontSize: 48)),
-                  ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight - 48,
                 ),
-              ),
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
 
-              const SizedBox(height: 28),
+                    children: [
+                      const Spacer(),
 
-              Text(
-                'Hare Krishna',
-                textAlign: TextAlign.center,
+                      // Logo
+                      Center(
+                        child: Container(
+                          width: 100,
+                          height: 100,
 
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer,
 
-              const SizedBox(height: 12),
+                            shape: BoxShape.circle,
+                          ),
 
-              Text(
-                'Welcome to BhaktiChart',
-                textAlign: TextAlign.center,
-
-                style: theme.textTheme.titleMedium,
-              ),
-
-              const SizedBox(height: 8),
-
-              Text(
-                'Track your daily sadhana\n'
-                'and grow steadily.',
-                textAlign: TextAlign.center,
-
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-
-              const SizedBox(height: 40),
-
-              Text(
-                'What should we call you?',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
-              TextField(
-                controller: _nameController,
-
-                textCapitalization: TextCapitalization.words,
-
-                decoration: const InputDecoration(
-                  hintText: 'Enter your name',
-
-                  prefixIcon: Icon(Icons.person_outline),
-                ),
-
-                onSubmitted: (_) => _continue(),
-              ),
-
-              const SizedBox(height: 20),
-
-              SizedBox(
-                height: 54,
-
-                child: FilledButton(
-                  onPressed: _isLoading ? null : _continue,
-
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 24,
-                          width: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text(
-                          'CONTINUE',
-                          style: TextStyle(fontWeight: FontWeight.bold),
+                          child: const Center(
+                            child: Text('🙏', style: TextStyle(fontSize: 48)),
+                          ),
                         ),
+                      ),
+
+                      const SizedBox(height: 28),
+
+                      Text(
+                        'Hare Krishna',
+                        textAlign: TextAlign.center,
+
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      Text(
+                        'Welcome to BhaktiChart',
+                        textAlign: TextAlign.center,
+
+                        style: theme.textTheme.titleMedium,
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      Text(
+                        'Track your daily sadhana\n'
+                        'and grow steadily.',
+                        textAlign: TextAlign.center,
+
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+
+                      const SizedBox(height: 40),
+
+                      Text(
+                        'What should we call you?',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      TextField(
+                        controller: _nameController,
+
+                        textCapitalization: TextCapitalization.words,
+
+                        decoration: const InputDecoration(
+                          hintText: 'Enter your name',
+
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+
+                        onSubmitted: (_) => _continue(),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      SizedBox(
+                        height: 54,
+
+                        child: FilledButton(
+                          onPressed: _isLoading ? null : _continue,
+
+                          child: _isLoading
+                              ? const SizedBox(
+                                  height: 24,
+                                  width: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text(
+                                  'CONTINUE',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                        ),
+                      ),
+
+                      const Spacer(),
+
+                      Text(
+                        'Your data stays on your device.',
+                        textAlign: TextAlign.center,
+
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+                    ],
+                  ),
                 ),
               ),
-
-              const Spacer(),
-
-              Text(
-                'Your data stays on your device.',
-                textAlign: TextAlign.center,
-
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-
-              const SizedBox(height: 12),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
