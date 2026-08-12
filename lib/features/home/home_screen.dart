@@ -58,6 +58,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, int> _monthlyAarti = {};
 
   // ============================================================
+  // DAY NOTES / IMPORTANT DAYS
+  // ============================================================
+
+  Map<String, DayNoteModel> _monthlyDayNotes = {};
+
+  // ============================================================
   // GOALS
   // ============================================================
 
@@ -198,6 +204,41 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // ----------------------------------------------------------
+      // DAY NOTES / IMPORTANT DAYS
+      // ----------------------------------------------------------
+
+      final Map<String, DayNoteModel> dayNotes = {};
+
+      final start = DateTime.parse(startDate);
+      final end = DateTime.parse(endDate);
+
+      DateTime currentDate = DateTime(start.year, start.month, start.day);
+
+      final lastDate = DateTime(end.year, end.month, end.day);
+
+      while (!currentDate.isAfter(lastDate)) {
+        final dateKey = _dateKey(currentDate);
+
+        try {
+          final note = await _repository.getDayNote(_userId!, dateKey);
+
+          if (note != null) {
+            final hasNote = note.note != null && note.note!.trim().isNotEmpty;
+
+            final isStarred = note.isStarred;
+
+            if (hasNote || isStarred) {
+              dayNotes[dateKey] = note;
+            }
+          }
+        } catch (e) {
+          debugPrint('Error loading day note for $dateKey: $e');
+        }
+
+        currentDate = currentDate.add(const Duration(days: 1));
+      }
+
+      // ----------------------------------------------------------
       // CURRENT GOAL
       // ----------------------------------------------------------
 
@@ -217,6 +258,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
         _monthlyAarti = aartiData;
 
+        _monthlyDayNotes = dayNotes;
+
         _currentGoal = goal;
 
         _goals[_selectedSadhanaTypeId!] = goal;
@@ -232,6 +275,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _dateKey(DateTime date) {
     return AppDateUtils.formatDate(date);
+  }
+
+  // ============================================================
+  // GET DAY NOTE
+  // ============================================================
+
+  DayNoteModel? _getDayNote(DateTime day) {
+    return _monthlyDayNotes[_dateKey(day)];
+  }
+
+  // ============================================================
+  // CHECK IMPORTANT DAY
+  // ============================================================
+
+  bool _isImportantDay(DateTime day) {
+    return _getDayNote(day)?.isStarred ?? false;
+  }
+
+  // ============================================================
+  // CHECK HAS NOTE
+  // ============================================================
+
+  bool _hasDayNote(DateTime day) {
+    final note = _getDayNote(day);
+
+    return note?.note != null && note!.note!.trim().isNotEmpty;
   }
 
   // ============================================================
@@ -1669,6 +1738,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ? theme.colorScheme.onPrimary
         : theme.colorScheme.onSurface;
 
+    // ----------------------------------------------------------
+    // IMPORTANT DAY / NOTE
+    // ----------------------------------------------------------
+
+    final bool isImportant = _isImportantDay(day);
+
+    final bool hasNote = _hasDayNote(day);
+
     return Container(
       margin: const EdgeInsets.all(2),
       decoration: BoxDecoration(
@@ -1682,6 +1759,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Stack(
         children: [
+          // ----------------------------------------------------
+          // DATE
+          // ----------------------------------------------------
           Positioned(
             top: 5,
             right: 6,
@@ -1696,6 +1776,19 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
+          // ----------------------------------------------------
+          // IMPORTANT STAR
+          // ----------------------------------------------------
+          if (isImportant)
+            Positioned(
+              top: 4,
+              left: 5,
+              child: Icon(Icons.star, size: 15, color: Colors.amber.shade700),
+            ),
+
+          // ----------------------------------------------------
+          // SADHANA VALUE
+          // ----------------------------------------------------
           Center(
             child: hasValue
                 ? Text(
@@ -1708,6 +1801,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   )
                 : null,
           ),
+
+          // ----------------------------------------------------
+          // NOTE INDICATOR
+          // ----------------------------------------------------
+          if (hasNote)
+            Positioned(
+              right: 5,
+              bottom: 4,
+              child: Icon(
+                Icons.sticky_note_2,
+                size: 14,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
         ],
       ),
     );
