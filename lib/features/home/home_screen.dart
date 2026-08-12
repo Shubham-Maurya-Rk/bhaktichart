@@ -78,6 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+
     _loadHomeData();
   }
 
@@ -109,18 +110,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      SadhanaTypeModel? defaultType;
-
-      if (types.isNotEmpty) {
-        try {
-          defaultType = types.firstWhere(
-            (type) => type.name.toLowerCase() == 'chanting',
-          );
-        } catch (_) {
-          defaultType = types.first;
-        }
-      }
-
       setState(() {
         _userId = user.id;
         _name = user.name;
@@ -128,12 +117,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
         _goals.clear();
         _goals.addAll(loadedGoals);
-
-        _selectedSadhanaTypeId = defaultType?.id;
-        _currentGoal = defaultType?.id == null
-            ? null
-            : loadedGoals[defaultType!.id!];
       });
+
+      // Select Chanting by default.
+      if (types.isNotEmpty) {
+        SadhanaTypeModel? chanting;
+
+        try {
+          chanting = types.firstWhere(
+            (type) => type.name.toLowerCase() == 'chanting',
+          );
+        } catch (_) {
+          chanting = types.first;
+        }
+
+        if (mounted) {
+          setState(() {
+            _selectedSadhanaTypeId = chanting?.id;
+          });
+        }
+      }
 
       await _loadMonthlyData();
     } catch (e) {
@@ -278,7 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
-  // DEFAULT UNIT
+  // DEFAULT SADHANA UNIT
   // ============================================================
 
   String _getDefaultUnit() {
@@ -293,9 +296,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
       case 'reading':
         return 'pages';
-
-      case 'aarti':
-        return 'aartis';
 
       default:
         return 'times';
@@ -341,14 +341,11 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (!mounted) {
-      return;
-    }
-
     setState(() {
       _selectedSadhanaTypeId = type.id;
+
       _monthlySadhana = {};
-      _monthlySadhanaByDate = {};
+
       _currentGoal = _goals[type.id!];
     });
 
@@ -381,9 +378,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   'What do you want to see?',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
-
                 const SizedBox(height: 16),
-
                 ..._sadhanaTypes.map((sadhana) {
                   final selected = sadhana.id == _selectedSadhanaTypeId;
 
@@ -470,6 +465,221 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
+  // DAY DETAIL HEADER
+  // ============================================================
+
+  Widget _buildDayDetailHeader(
+    BuildContext context,
+    DateTime day,
+    SadhanaTypeModel type,
+    double value,
+    GoalModel? goal,
+    String? actualUnit,
+  ) {
+    final theme = Theme.of(context);
+
+    final isReading = type.name.toLowerCase() == 'reading';
+
+    bool unitMatches = true;
+
+    if (isReading && goal != null) {
+      unitMatches =
+          actualUnit != null && goal.unit != null && actualUnit == goal.unit;
+    }
+
+    final hasGoal = goal != null && goal.targetValue > 0;
+
+    double? progress;
+
+    if (hasGoal && (!isReading || unitMatches)) {
+      progress = value / goal!.targetValue;
+    }
+
+    final completed = progress != null && progress >= 1.0;
+
+    return Column(
+      children: [
+        Text(
+          DateFormat('EEEE, d MMMM yyyy').format(day),
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+
+        const SizedBox(height: 8),
+
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(type.icon ?? '🙏', style: const TextStyle(fontSize: 30)),
+            const SizedBox(width: 8),
+            Text(
+              type.name,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 20),
+
+        Card(
+          elevation: 0,
+          color: theme.colorScheme.surfaceContainerHighest,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              children: [
+                Text(
+                  'Today',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+
+                const SizedBox(height: 6),
+
+                Text(
+                  _formatValue(value),
+                  style: theme.textTheme.displaySmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: completed ? theme.colorScheme.primary : null,
+                  ),
+                ),
+
+                if (actualUnit != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    actualUnit,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 16),
+
+                if (!hasGoal)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.flag_outlined,
+                        size: 20,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'No daily goal set',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ],
+                  )
+                else if (isReading && !unitMatches)
+                  Column(
+                    children: [
+                      Icon(
+                        Icons.compare_arrows_outlined,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Goal not applicable for this unit',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Today: ${actualUnit ?? 'unknown'} • '
+                        'Goal: ${goal.unit ?? 'unknown'}',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  )
+                else ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Goal', style: theme.textTheme.bodyMedium),
+                      Text(
+                        '${_formatValue(goal!.targetValue)} '
+                        '${goal.unit ?? ''}',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: LinearProgressIndicator(
+                      value: progress!.clamp(0.0, 1.0),
+                      minHeight: 10,
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '${_formatValue(value)} / '
+                        '${_formatValue(goal.targetValue)}',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        '${(progress * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: completed ? theme.colorScheme.primary : null,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  if (completed) ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          size: 20,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Daily goal completed 🎉',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
   // VALUE SADHANA SHEET
   // ============================================================
 
@@ -520,6 +730,8 @@ class _HomeScreenState extends State<HomeScreen> {
     bool isStarred = existingNote?.isStarred ?? false;
 
     if (!mounted) {
+      controller.dispose();
+      noteController.dispose();
       return;
     }
 
@@ -540,6 +752,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
             final unit = isReading ? selectedReadingUnit : _getDefaultUnit();
 
+            // ==================================================
+            // DAY DETAIL DATA
+            // ==================================================
+
+            final value = existing?.value ?? 0.0;
+
+            final goal = _goals[type.id!] ?? _currentGoal;
+
+            String? actualUnit;
+
+            if (isReading) {
+              actualUnit = selectedReadingUnit;
+            } else {
+              actualUnit = unit;
+            }
+
             return SafeArea(
               child: SingleChildScrollView(
                 padding: EdgeInsets.only(
@@ -551,36 +779,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      DateFormat('EEEE, d MMMM yyyy').format(day),
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                    // ------------------------------------------------
+                    // DAY DETAIL
+                    // ------------------------------------------------
+                    _buildDayDetailHeader(
+                      context,
+                      day,
+                      type,
+                      value,
+                      goal,
+                      actualUnit,
                     ),
 
-                    const SizedBox(height: 8),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          type.icon ?? '🙏',
-                          style: const TextStyle(fontSize: 28),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          type.name,
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 24),
 
                     // ------------------------------------------------
-                    // READING UNIT
+                    // READING UNIT SELECTOR
                     // ------------------------------------------------
                     if (isReading) ...[
                       Align(
@@ -745,14 +959,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
                           await _repository.saveDayNote(note);
 
+                          await _loadMonthlyData();
+
                           if (!context.mounted) {
                             return;
                           }
 
-                          // IMPORTANT:
-                          // Close the sheet first.
-                          // Do not reload while TextFields are
-                          // still inside the active sheet.
                           Navigator.pop(context);
                         },
                         icon: const Icon(Icons.check),
@@ -773,18 +985,6 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
-
-    // Reload only AFTER the bottom sheet is completely closed.
-    if (mounted) {
-      await _loadMonthlyData();
-    }
-
-    // IMPORTANT:
-    // Do NOT manually dispose these controllers here.
-    //
-    // They are owned by this temporary modal flow.
-    // Manual disposal here can race with Flutter's route/widget
-    // teardown, especially when nested dialogs/sheets are involved.
   }
 
   // ============================================================
@@ -814,12 +1014,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (!mounted) {
+      noteController.dispose();
       return;
     }
-
-    // ----------------------------------------------------------
-    // OPEN SHEET
-    // ----------------------------------------------------------
 
     await showModalBottomSheet(
       context: context,
@@ -828,6 +1025,10 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
+            final goal = _goals[_selectedSadhanaTypeId];
+
+            final count = selectedIds.length;
+
             return SafeArea(
               child: SingleChildScrollView(
                 padding: EdgeInsets.only(
@@ -839,6 +1040,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // ------------------------------------------------
+                    // DATE
+                    // ------------------------------------------------
                     Text(
                       DateFormat('EEEE, d MMMM yyyy').format(day),
                       textAlign: TextAlign.center,
@@ -849,6 +1053,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 8),
 
+                    // ------------------------------------------------
+                    // TITLE
+                    // ------------------------------------------------
                     const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -862,6 +1069,67 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                       ],
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // ------------------------------------------------
+                    // DAY PROGRESS
+                    // ------------------------------------------------
+                    Card(
+                      elevation: 0,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                      child: Padding(
+                        padding: const EdgeInsets.all(18),
+                        child: Column(
+                          children: [
+                            Text(
+                              '$count',
+                              style: Theme.of(context).textTheme.displaySmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            const Text('Aartis attended'),
+
+                            if (goal != null && goal.targetValue > 0) ...[
+                              const SizedBox(height: 16),
+
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Goal'),
+                                  Text(
+                                    '${_formatValue(goal.targetValue)} '
+                                    '${goal.unit ?? 'aartis'}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 10),
+
+                              LinearProgressIndicator(
+                                value: (count / goal.targetValue).clamp(
+                                  0.0,
+                                  1.0,
+                                ),
+                                minHeight: 10,
+                              ),
+
+                              const SizedBox(height: 8),
+
+                              Text(
+                                '${((count / goal.targetValue) * 100).clamp(0, 100).toStringAsFixed(0)}% completed',
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
 
                     const SizedBox(height: 20),
@@ -917,24 +1185,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       onPressed: () async {
                         final added = await _showAddAartiDialog();
 
-                        if (added != true) {
-                          return;
-                        }
-
-                        if (!context.mounted) {
-                          return;
-                        }
-
-                        // Close current sheet.
-                        Navigator.pop(context);
-
-                        // Open fresh sheet after the current
-                        // sheet is completely closed.
-                        Future.microtask(() {
-                          if (mounted) {
-                            _showAartiSheet(day);
+                        if (added == true) {
+                          if (!context.mounted) {
+                            return;
                           }
-                        });
+
+                          Navigator.pop(context);
+
+                          await _showAartiSheet(day);
+                        }
                       },
                       icon: const Icon(Icons.add),
                       label: const Text('ADD MY AARTI'),
@@ -994,7 +1253,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         onPressed: () async {
                           final now = DateTime.now().toIso8601String();
 
-                          // Save / remove attendance.
                           for (final aarti in aartiTypes) {
                             final id = aarti.id;
 
@@ -1037,7 +1295,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             return;
                           }
 
-                          // Close first.
                           Navigator.pop(context);
                         },
                         icon: const Icon(Icons.check),
@@ -1059,13 +1316,7 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
 
-    // Reload only after the sheet is closed.
-    if (mounted) {
-      await _loadMonthlyData();
-    }
-
-    // IMPORTANT:
-    // No noteController.dispose() here.
+    await _loadMonthlyData();
   }
 
   // ============================================================
@@ -1106,7 +1357,6 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Add Aarti'),
-
           content: TextField(
             controller: controller,
             autofocus: true,
@@ -1117,7 +1367,6 @@ class _HomeScreenState extends State<HomeScreen> {
               prefixIcon: Icon(Icons.auto_awesome),
             ),
           ),
-
           actions: [
             TextButton(
               onPressed: () {
@@ -1125,7 +1374,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               child: const Text('CANCEL'),
             ),
-
             FilledButton(
               onPressed: () async {
                 final name = controller.text.trim();
@@ -1173,12 +1421,6 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
-
-    // Deliberately not disposing here.
-    //
-    // This controller belongs to the temporary dialog
-    // and disposing it manually can race with Flutter's
-    // dialog teardown when asynchronous callbacks are involved.
 
     return result;
   }
@@ -1429,7 +1671,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Container(
       margin: const EdgeInsets.all(2),
-
       decoration: BoxDecoration(
         color: heatColor,
         borderRadius: BorderRadius.circular(10),
@@ -1439,7 +1680,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ? Border.all(color: theme.colorScheme.primary, width: 2)
             : null,
       ),
-
       child: Stack(
         children: [
           Positioned(
@@ -1526,7 +1766,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
-  // GOAL PROGRESS
+  // GOAL PROGRESS FOR NORMAL SADHANA
   // ============================================================
 
   double? _getGoalProgressForDay(DateTime day) {
@@ -1549,22 +1789,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // ----------------------------------------------------------
-    // READING
+    // READING SPECIAL HANDLING
     // ----------------------------------------------------------
 
     if (selected.name.toLowerCase() == 'reading') {
       final dailyUnit = _getUnitForDay(day);
 
       final goalUnit = goal.unit;
-
-      // Never compare different units.
-      //
-      // pages vs shlokas
-      // pages vs minutes
-      // shlokas vs minutes
-      //
-      // These return null so the calendar does
-      // not show an incorrect percentage.
 
       if (dailyUnit == null || goalUnit == null || dailyUnit != goalUnit) {
         return null;
