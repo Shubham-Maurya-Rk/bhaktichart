@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'onboarding_repository.dart';
 
 import '../home/home_screen.dart';
 
@@ -12,7 +12,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final TextEditingController _nameController = TextEditingController();
-
+  final OnboardingRepository _repository = OnboardingRepository();
   bool _isLoading = false;
 
   Future<void> _continue() async {
@@ -30,15 +30,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _isLoading = true;
     });
 
-    final prefs = await SharedPreferences.getInstance();
+    try {
+      await _repository.saveUser(name);
 
-    await prefs.setString('user_name', name);
+      if (!mounted) return;
 
-    if (!mounted) return;
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
+    } catch (e) {
+      if (!mounted) return;
 
-    Navigator.of(
-      context,
-    ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Something went wrong: $e')));
+
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
