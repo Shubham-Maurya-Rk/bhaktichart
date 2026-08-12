@@ -52,13 +52,18 @@ class _HomeScreenState extends State<HomeScreen> {
   // ============================================================
 
   Map<String, double> _monthlySadhana = {};
+
+  Map<String, DailySadhanaModel> _monthlySadhanaByDate = {};
+
   Map<String, int> _monthlyAarti = {};
 
   // ============================================================
-  // GOAL
+  // GOALS
   // ============================================================
 
   GoalModel? _currentGoal;
+
+  final Map<int, GoalModel?> _goals = {};
 
   // ============================================================
   // LOADING
@@ -73,7 +78,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-
     _loadHomeData();
   }
 
@@ -91,26 +95,45 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final types = await _repository.getSadhanaTypes();
 
-      if (!mounted) return;
+      final Map<int, GoalModel?> loadedGoals = {};
+
+      for (final type in types) {
+        if (type.id == null) {
+          continue;
+        }
+
+        loadedGoals[type.id!] = await _repository.getGoal(user.id!, type.id!);
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      SadhanaTypeModel? defaultType;
+
+      if (types.isNotEmpty) {
+        try {
+          defaultType = types.firstWhere(
+            (type) => type.name.toLowerCase() == 'chanting',
+          );
+        } catch (_) {
+          defaultType = types.first;
+        }
+      }
 
       setState(() {
         _userId = user.id;
         _name = user.name;
         _sadhanaTypes = types;
+
+        _goals.clear();
+        _goals.addAll(loadedGoals);
+
+        _selectedSadhanaTypeId = defaultType?.id;
+        _currentGoal = defaultType?.id == null
+            ? null
+            : loadedGoals[defaultType!.id!];
       });
-
-      if (types.isNotEmpty) {
-        final chanting = types.cast<SadhanaTypeModel?>().firstWhere(
-          (type) => type?.name.toLowerCase() == 'chanting',
-          orElse: () => types.first,
-        );
-
-        if (mounted) {
-          setState(() {
-            _selectedSadhanaTypeId = chanting?.id;
-          });
-        }
-      }
 
       await _loadMonthlyData();
     } catch (e) {
@@ -135,7 +158,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final startDate = AppDateUtils.monthStart(_focusedDay);
-
       final endDate = AppDateUtils.monthEnd(_focusedDay);
 
       final records = await _repository.getSadhanaForMonth(
@@ -143,17 +165,26 @@ class _HomeScreenState extends State<HomeScreen> {
         startDate,
         endDate,
       );
+
       final aartiRecords = await _repository.getAartiAttendanceForMonth(
         _userId!,
         startDate,
         endDate,
       );
 
+      // ----------------------------------------------------------
+      // AARTI COUNT
+      // ----------------------------------------------------------
+
       final Map<String, int> aartiData = {};
 
       for (final record in aartiRecords) {
         aartiData[record.date] = (aartiData[record.date] ?? 0) + 1;
       }
+
+      // ----------------------------------------------------------
+      // SELECTED SADHANA VALUES
+      // ----------------------------------------------------------
 
       final Map<String, double> data = {};
 
@@ -163,14 +194,29 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
 
+      // ----------------------------------------------------------
+      // CURRENT GOAL
+      // ----------------------------------------------------------
+
       final goal = await _repository.getGoal(_userId!, _selectedSadhanaTypeId!);
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
+        _monthlySadhanaByDate = {
+          for (final item in records)
+            '${item.date}_${item.sadhanaTypeId}': item,
+        };
+
         _monthlySadhana = data;
+
         _monthlyAarti = aartiData;
+
         _currentGoal = goal;
+
+        _goals[_selectedSadhanaTypeId!] = goal;
       });
     } catch (e) {
       debugPrint('Error loading monthly data: $e');
@@ -190,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ============================================================
 
   double _getValueForDay(DateTime day) {
-    return _monthlySadhana[_dateKey(day)] ?? 0;
+    return _monthlySadhana[_dateKey(day)] ?? 0.0;
   }
 
   // ============================================================
@@ -232,7 +278,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
-  // SADHANA UNIT
+  // DEFAULT UNIT
   // ============================================================
 
   String _getDefaultUnit() {
@@ -248,6 +294,9 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'reading':
         return 'pages';
 
+      case 'aarti':
+        return 'aartis';
+
       default:
         return 'times';
     }
@@ -257,38 +306,30 @@ class _HomeScreenState extends State<HomeScreen> {
   // HEATMAP COLOR
   // ============================================================
 
-  Color _getHeatColor(BuildContext context, double value) {
+  Color _getHeatColor(BuildContext context, double? progress) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    if (value <= 0) {
-      return colorScheme.surfaceContainerHighest.withValues(alpha: 0.35);
+    if (progress == null || progress <= 0) {
+      return colorScheme.surfaceContainerHighest;
     }
 
-    final goal = _currentGoal?.targetValue ?? 16;
-
-    if (goal <= 0) {
+    if (progress >= 1.0) {
       return colorScheme.primary;
     }
 
-    final percentage = (value / goal).clamp(0.0, 1.0);
-
-    if (percentage < 0.25) {
-      return colorScheme.primary.withValues(alpha: 0.18);
-    }
-
-    if (percentage < 0.50) {
-      return colorScheme.primary.withValues(alpha: 0.35);
-    }
-
-    if (percentage < 0.75) {
-      return colorScheme.primary.withValues(alpha: 0.55);
-    }
-
-    if (percentage < 1.0) {
+    if (progress >= 0.75) {
       return colorScheme.primary.withValues(alpha: 0.75);
     }
 
-    return colorScheme.primary;
+    if (progress >= 0.50) {
+      return colorScheme.primary.withValues(alpha: 0.55);
+    }
+
+    if (progress >= 0.25) {
+      return colorScheme.primary.withValues(alpha: 0.35);
+    }
+
+    return colorScheme.primary.withValues(alpha: 0.18);
   }
 
   // ============================================================
@@ -300,10 +341,15 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
+
     setState(() {
       _selectedSadhanaTypeId = type.id;
       _monthlySadhana = {};
-      _currentGoal = null;
+      _monthlySadhanaByDate = {};
+      _currentGoal = _goals[type.id!];
     });
 
     Navigator.pop(context);
@@ -346,25 +392,20 @@ class _HomeScreenState extends State<HomeScreen> {
                       sadhana.icon ?? '🙏',
                       style: const TextStyle(fontSize: 28),
                     ),
-
                     title: Text(
                       sadhana.name,
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
-
                     trailing: selected
                         ? Icon(
                             Icons.check_circle,
                             color: Theme.of(sheetContext).colorScheme.primary,
                           )
                         : null,
-
                     selected: selected,
-
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
-
                     onTap: () {
                       _selectSadhana(sadhana);
                     },
@@ -393,7 +434,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final currentDay = DateTime(today.year, today.month, today.day);
 
-    // Don't allow future dates.
     if (selected.isAfter(currentDay)) {
       return;
     }
@@ -445,32 +485,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final existingNote = await _repository.getDayNote(_userId!, _dateKey(day));
 
-    String readingUnit = 'pages';
+    // ----------------------------------------------------------
+    // READING UNIT
+    // ----------------------------------------------------------
+
+    String selectedReadingUnit = 'pages';
 
     if (type.name.toLowerCase() == 'reading') {
-      if (existing != null && existing.unit!.isNotEmpty) {
-        readingUnit = existing.unit!;
+      if (existing != null &&
+          existing.unit != null &&
+          existing.unit!.isNotEmpty) {
+        selectedReadingUnit = existing.unit!;
       } else {
         final settings = await _repository.getReadingSettings(_userId!);
 
-        readingUnit = settings?.unit ?? 'pages';
+        selectedReadingUnit = settings?.unit ?? 'pages';
       }
     }
 
-    String selectedReadingUnit = readingUnit;
-
-    if (type.name.toLowerCase() == 'reading') {
-      if (existing != null && existing.unit!.isNotEmpty) {
-        // Use the unit that was actually used
-        // when this day's reading was saved.
-        readingUnit = existing.unit!;
-      } else {
-        // New reading entry.
-        final settings = await _repository.getReadingSettings(_userId!);
-
-        readingUnit = settings?.unit ?? 'pages';
-      }
-    }
+    // ----------------------------------------------------------
+    // CONTROLLERS
+    // ----------------------------------------------------------
 
     final controller = TextEditingController(
       text: existing != null && existing.value > 0
@@ -484,7 +519,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     bool isStarred = existingNote?.isStarred ?? false;
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // OPEN SHEET
+    // ----------------------------------------------------------
 
     await showModalBottomSheet(
       context: context,
@@ -538,6 +579,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 20),
 
+                    // ------------------------------------------------
+                    // READING UNIT
+                    // ------------------------------------------------
                     if (isReading) ...[
                       Align(
                         alignment: Alignment.centerLeft,
@@ -549,35 +593,45 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       const SizedBox(height: 8),
 
-                      SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(
-                            value: 'pages',
-                            label: Text('Pages'),
-                            icon: Icon(Icons.menu_book),
-                          ),
-                          ButtonSegment(
-                            value: 'shlokas',
-                            label: Text('Shlokas'),
-                            icon: Icon(Icons.format_quote),
-                          ),
-                          ButtonSegment(
-                            value: 'minutes',
-                            label: Text('Minutes'),
-                            icon: Icon(Icons.timer_outlined),
-                          ),
-                        ],
-                        selected: {selectedReadingUnit},
-                        onSelectionChanged: (values) {
-                          setSheetState(() {
-                            selectedReadingUnit = values.first;
-                          });
-                        },
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment<String>(
+                              value: 'pages',
+                              label: Text('Pages'),
+                              icon: Icon(Icons.menu_book),
+                            ),
+                            ButtonSegment<String>(
+                              value: 'shlokas',
+                              label: Text('Shlokas'),
+                              icon: Icon(Icons.format_quote),
+                            ),
+                            ButtonSegment<String>(
+                              value: 'minutes',
+                              label: Text('Minutes'),
+                              icon: Icon(Icons.timer_outlined),
+                            ),
+                          ],
+                          selected: {selectedReadingUnit},
+                          onSelectionChanged: (values) {
+                            if (values.isEmpty) {
+                              return;
+                            }
+
+                            setSheetState(() {
+                              selectedReadingUnit = values.first;
+                            });
+                          },
+                        ),
                       ),
 
                       const SizedBox(height: 20),
                     ],
 
+                    // ------------------------------------------------
+                    // VALUE
+                    // ------------------------------------------------
                     TextField(
                       controller: controller,
                       autofocus: true,
@@ -600,7 +654,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 16),
 
+                    // ------------------------------------------------
                     // STAR
+                    // ------------------------------------------------
                     Card(
                       child: SwitchListTile(
                         value: isStarred,
@@ -625,7 +681,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 8),
 
+                    // ------------------------------------------------
                     // NOTE
+                    // ------------------------------------------------
                     TextField(
                       controller: noteController,
                       maxLines: 3,
@@ -641,6 +699,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 20),
 
+                    // ------------------------------------------------
+                    // SAVE
+                    // ------------------------------------------------
                     SizedBox(
                       width: double.infinity,
                       height: 52,
@@ -684,12 +745,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
                           await _repository.saveDayNote(note);
 
-                          await _loadMonthlyData();
-
                           if (!context.mounted) {
                             return;
                           }
 
+                          // IMPORTANT:
+                          // Close the sheet first.
+                          // Do not reload while TextFields are
+                          // still inside the active sheet.
                           Navigator.pop(context);
                         },
                         icon: const Icon(Icons.check),
@@ -710,6 +773,18 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+
+    // Reload only AFTER the bottom sheet is completely closed.
+    if (mounted) {
+      await _loadMonthlyData();
+    }
+
+    // IMPORTANT:
+    // Do NOT manually dispose these controllers here.
+    //
+    // They are owned by this temporary modal flow.
+    // Manual disposal here can race with Flutter's route/widget
+    // teardown, especially when nested dialogs/sheets are involved.
   }
 
   // ============================================================
@@ -717,7 +792,9 @@ class _HomeScreenState extends State<HomeScreen> {
   // ============================================================
 
   Future<void> _showAartiSheet(DateTime day) async {
-    if (_userId == null) return;
+    if (_userId == null) {
+      return;
+    }
 
     final aartiTypes = await _repository.getAartiTypes(_userId!);
 
@@ -736,7 +813,13 @@ class _HomeScreenState extends State<HomeScreen> {
       text: existingNote?.note ?? '',
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // OPEN SHEET
+    // ----------------------------------------------------------
 
     await showModalBottomSheet(
       context: context,
@@ -783,6 +866,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 20),
 
+                    // ------------------------------------------------
+                    // AARTI LIST
+                    // ------------------------------------------------
                     if (aartiTypes.isEmpty)
                       _buildNoAartiMessage(context)
                     else
@@ -824,16 +910,31 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 8),
 
+                    // ------------------------------------------------
                     // ADD AARTI
+                    // ------------------------------------------------
                     OutlinedButton.icon(
                       onPressed: () async {
                         final added = await _showAddAartiDialog();
 
-                        if (added == true) {
-                          Navigator.pop(context);
-
-                          await _showAartiSheet(day);
+                        if (added != true) {
+                          return;
                         }
+
+                        if (!context.mounted) {
+                          return;
+                        }
+
+                        // Close current sheet.
+                        Navigator.pop(context);
+
+                        // Open fresh sheet after the current
+                        // sheet is completely closed.
+                        Future.microtask(() {
+                          if (mounted) {
+                            _showAartiSheet(day);
+                          }
+                        });
                       },
                       icon: const Icon(Icons.add),
                       label: const Text('ADD MY AARTI'),
@@ -841,7 +942,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 12),
 
+                    // ------------------------------------------------
                     // STAR
+                    // ------------------------------------------------
                     Card(
                       child: SwitchListTile(
                         value: isStarred,
@@ -864,7 +967,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 8),
 
+                    // ------------------------------------------------
                     // NOTE
+                    // ------------------------------------------------
                     TextField(
                       controller: noteController,
                       maxLines: 3,
@@ -880,13 +985,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 20),
 
+                    // ------------------------------------------------
+                    // SAVE
+                    // ------------------------------------------------
                     SizedBox(
                       height: 52,
                       child: FilledButton.icon(
                         onPressed: () async {
                           final now = DateTime.now().toIso8601String();
 
-                          // Save attendance
+                          // Save / remove attendance.
                           for (final aarti in aartiTypes) {
                             final id = aarti.id;
 
@@ -929,6 +1037,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             return;
                           }
 
+                          // Close first.
                           Navigator.pop(context);
                         },
                         icon: const Icon(Icons.check),
@@ -949,7 +1058,14 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
-    await _loadMonthlyData();
+
+    // Reload only after the sheet is closed.
+    if (mounted) {
+      await _loadMonthlyData();
+    }
+
+    // IMPORTANT:
+    // No noteController.dispose() here.
   }
 
   // ============================================================
@@ -985,11 +1101,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<bool?> _showAddAartiDialog() async {
     final controller = TextEditingController();
 
-    return showDialog<bool>(
+    final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Add Aarti'),
+
           content: TextField(
             controller: controller,
             autofocus: true,
@@ -1000,6 +1117,7 @@ class _HomeScreenState extends State<HomeScreen> {
               prefixIcon: Icon(Icons.auto_awesome),
             ),
           ),
+
           actions: [
             TextButton(
               onPressed: () {
@@ -1007,6 +1125,7 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               child: const Text('CANCEL'),
             ),
+
             FilledButton(
               onPressed: () async {
                 final name = controller.text.trim();
@@ -1054,6 +1173,14 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+
+    // Deliberately not disposing here.
+    //
+    // This controller belongs to the temporary dialog
+    // and disposing it manually can race with Flutter's
+    // dialog teardown when asynchronous callbacks are involved.
+
+    return result;
   }
 
   // ============================================================
@@ -1198,7 +1325,6 @@ class _HomeScreenState extends State<HomeScreen> {
         child: TableCalendar(
           firstDay: DateTime(2020),
           lastDay: DateTime(2100),
-
           focusedDay: _focusedDay,
 
           selectedDayPredicate: (day) {
@@ -1287,12 +1413,23 @@ class _HomeScreenState extends State<HomeScreen> {
         ? (_monthlyAarti[_dateKey(day)] ?? 0).toDouble()
         : _getValueForDay(day);
 
-    final heatColor = _getHeatColor(context, value);
+    final double? progress = isAarti
+        ? _getAartiGoalProgress(day)
+        : _getGoalProgressForDay(day);
+
+    final heatColor = _getHeatColor(context, progress);
 
     final hasValue = value > 0;
 
+    final bool reachedGoal = progress != null && progress >= 1.0;
+
+    final valueTextColor = reachedGoal
+        ? theme.colorScheme.onPrimary
+        : theme.colorScheme.onSurface;
+
     return Container(
       margin: const EdgeInsets.all(2),
+
       decoration: BoxDecoration(
         color: heatColor,
         borderRadius: BorderRadius.circular(10),
@@ -1302,9 +1439,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ? Border.all(color: theme.colorScheme.primary, width: 2)
             : null,
       ),
+
       child: Stack(
         children: [
-          // DATE
           Positioned(
             top: 5,
             right: 6,
@@ -1319,7 +1456,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // VALUE
           Center(
             child: hasValue
                 ? Text(
@@ -1327,9 +1463,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
-                      color: value >= (_currentGoal?.targetValue ?? 16)
-                          ? theme.colorScheme.onPrimary
-                          : theme.colorScheme.onSurface,
+                      color: valueTextColor,
                     ),
                   )
                 : null,
@@ -1337,6 +1471,28 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  // ============================================================
+  // AARTI GOAL PROGRESS
+  // ============================================================
+
+  double? _getAartiGoalProgress(DateTime day) {
+    final selected = _selectedSadhana;
+
+    if (selected == null || selected.id == null) {
+      return null;
+    }
+
+    final goal = _goals[selected.id!];
+
+    if (goal == null || goal.targetValue <= 0) {
+      return null;
+    }
+
+    final count = (_monthlyAarti[_dateKey(day)] ?? 0).toDouble();
+
+    return count / goal.targetValue;
   }
 
   // ============================================================
@@ -1370,6 +1526,71 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
+  // GOAL PROGRESS
+  // ============================================================
+
+  double? _getGoalProgressForDay(DateTime day) {
+    final selected = _selectedSadhana;
+
+    if (selected == null || selected.id == null) {
+      return null;
+    }
+
+    final goal = _goals[selected.id!];
+
+    if (goal == null || goal.targetValue <= 0) {
+      return null;
+    }
+
+    final value = _getValueForDay(day);
+
+    if (value <= 0) {
+      return 0;
+    }
+
+    // ----------------------------------------------------------
+    // READING
+    // ----------------------------------------------------------
+
+    if (selected.name.toLowerCase() == 'reading') {
+      final dailyUnit = _getUnitForDay(day);
+
+      final goalUnit = goal.unit;
+
+      // Never compare different units.
+      //
+      // pages vs shlokas
+      // pages vs minutes
+      // shlokas vs minutes
+      //
+      // These return null so the calendar does
+      // not show an incorrect percentage.
+
+      if (dailyUnit == null || goalUnit == null || dailyUnit != goalUnit) {
+        return null;
+      }
+    }
+
+    return value / goal.targetValue;
+  }
+
+  // ============================================================
+  // GET UNIT FOR DAY
+  // ============================================================
+
+  String? _getUnitForDay(DateTime day) {
+    final selected = _selectedSadhana;
+
+    if (selected == null || selected.id == null) {
+      return null;
+    }
+
+    final key = '${_dateKey(day)}_${selected.id}';
+
+    return _monthlySadhanaByDate[key]?.unit;
+  }
+
+  // ============================================================
   // BUILD
   // ============================================================
 
@@ -1398,12 +1619,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
         actions: [
           IconButton(
-            tooltip: 'Settings',
-            onPressed: () {
-              Navigator.push(
+            tooltip: 'Goals',
+            onPressed: () async {
+              await Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const GoalsScreen()),
               );
+
+              if (!mounted) {
+                return;
+              }
+
+              await _reloadGoals();
             },
             icon: const Icon(Icons.settings_outlined),
           ),
@@ -1434,5 +1661,44 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  // ============================================================
+  // RELOAD GOALS
+  // ============================================================
+
+  Future<void> _reloadGoals() async {
+    if (_userId == null) {
+      return;
+    }
+
+    try {
+      final Map<int, GoalModel?> loadedGoals = {};
+
+      for (final type in _sadhanaTypes) {
+        if (type.id == null) {
+          continue;
+        }
+
+        loadedGoals[type.id!] = await _repository.getGoal(_userId!, type.id!);
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _goals.clear();
+        _goals.addAll(loadedGoals);
+
+        _currentGoal = _selectedSadhanaTypeId == null
+            ? null
+            : _goals[_selectedSadhanaTypeId!];
+      });
+
+      await _loadMonthlyData();
+    } catch (e) {
+      debugPrint('Error reloading goals: $e');
+    }
   }
 }
