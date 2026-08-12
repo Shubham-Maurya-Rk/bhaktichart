@@ -1,4 +1,5 @@
 import 'package:bhaktichart/core/utils/date_utils.dart';
+import 'package:bhaktichart/features/goals/goals_screen.dart';
 import 'package:bhaktichart/models/aarti_type_model.dart';
 import 'package:bhaktichart/models/daily_aarti_model.dart';
 import 'package:bhaktichart/models/daily_sadhana_model.dart';
@@ -1398,7 +1399,12 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           IconButton(
             tooltip: 'Settings',
-            onPressed: () {},
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const GoalsScreen()),
+              );
+            },
             icon: const Icon(Icons.settings_outlined),
           ),
         ],

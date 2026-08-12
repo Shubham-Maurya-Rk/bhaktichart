@@ -14,6 +14,21 @@ class SadhanaRepository {
 
   Future<Database> get _db => _databaseHelper.database;
 
+  Future<void> deleteGoal(int userId, int sadhanaTypeId) async {
+    final db = await _db;
+
+    await db.update(
+      'goals',
+      {'is_active': 0, 'updated_at': DateTime.now().toIso8601String()},
+      where: '''
+      user_id = ?
+      AND sadhana_type_id = ?
+      AND is_active = ?
+    ''',
+      whereArgs: [userId, sadhanaTypeId, 1],
+    );
+  }
+
   Future<List<DailyAartiModel>> getAartiAttendanceForMonth(
     int userId,
     String startDate,
@@ -352,10 +367,31 @@ class SadhanaRepository {
   Future<void> saveGoal(GoalModel goal) async {
     final db = await _db;
 
-    await db.insert(
+    final existing = await db.query(
       'goals',
-      goal.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      where: '''
+      user_id = ?
+      AND sadhana_type_id = ?
+    ''',
+      whereArgs: [goal.userId, goal.sadhanaTypeId],
+      orderBy: 'id DESC',
+      limit: 1,
     );
+
+    if (existing.isEmpty) {
+      await db.insert('goals', goal.toMap());
+    } else {
+      await db.update(
+        'goals',
+        {
+          'target_value': goal.targetValue,
+          'unit': goal.unit,
+          'is_active': 1,
+          'updated_at': goal.updatedAt ?? DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [existing.first['id']],
+      );
+    }
   }
 }
