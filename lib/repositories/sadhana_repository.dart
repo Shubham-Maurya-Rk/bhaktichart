@@ -14,6 +14,65 @@ class SadhanaRepository {
 
   Future<Database> get _db => _databaseHelper.database;
 
+  Future<void> createDefaultGoals(int userId) async {
+    final db = await _db;
+
+    final now = DateTime.now().toIso8601String();
+
+    // Get the active Sadhana types
+    final types = await db.query(
+      'sadhana_types',
+      where: 'is_active = ?',
+      whereArgs: [1],
+      orderBy: 'sort_order ASC',
+    );
+
+    for (final type in types) {
+      final typeId = type['id'] as int;
+      final name = (type['name'] as String).toLowerCase();
+
+      String? unit;
+      double? target;
+
+      switch (name) {
+        case 'chanting':
+          target = 16;
+          unit = 'rounds';
+          break;
+
+        case 'reading':
+          target = 10;
+          unit = 'pages';
+          break;
+
+        case 'hearing':
+          target = 30;
+          unit = 'minutes';
+          break;
+
+        case 'aarti':
+          target = 1;
+          unit = 'aartis';
+          break;
+
+        default:
+          // Don't automatically create a goal
+          // for unknown/custom Sadhana types.
+          continue;
+      }
+
+      await db.insert('goals', {
+        'user_id': userId,
+        'sadhana_type_id': typeId,
+        'target_value': target,
+        'unit': unit,
+        'is_active': 1,
+        'created_at': now,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+  }
+
   Future<void> deleteGoal(int userId, int sadhanaTypeId) async {
     final db = await _db;
 
@@ -67,7 +126,14 @@ class SadhanaRepository {
 
     final now = DateTime.now().toIso8601String();
 
-    return await db.insert('users', {'name': name.trim(), 'created_at': now});
+    final userId = await db.insert('users', {
+      'name': name.trim(),
+      'created_at': now,
+    });
+
+    await createDefaultGoals(userId);
+
+    return userId;
   }
   // =====================================================
   // SADHANA TYPES
