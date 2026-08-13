@@ -1,5 +1,6 @@
 import 'package:bhaktichart/core/utils/date_utils.dart';
 import 'package:bhaktichart/features/goals/goals_screen.dart';
+import 'package:bhaktichart/features/insights/monthly_insights_screen.dart';
 import 'package:bhaktichart/models/aarti_type_model.dart';
 import 'package:bhaktichart/models/daily_aarti_model.dart';
 import 'package:bhaktichart/models/daily_sadhana_model.dart';
@@ -10,7 +11,6 @@ import 'package:bhaktichart/repositories/sadhana_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:bhaktichart/features/insights/monthly_insights_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -58,11 +58,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Map<String, int> _monthlyAarti = {};
 
+  // IMPORTANT:
+  // This list ALWAYS contains ALL SADHANA TYPES.
+  //
+  // Do NOT make this dependent on _selectedSadhanaTypeId.
+  //
+  // Today's Sadhana and Monthly Quick Stats use this list.
   List<DailySadhanaModel> _allSadhanaRecords = [];
+
   List<DailyAartiModel> _allAartiRecords = [];
 
   // ============================================================
-  // DAY NOTES / IMPORTANT DAYS
+  // DAY NOTES
   // ============================================================
 
   Map<String, DayNoteModel> _monthlyDayNotes = {};
@@ -129,7 +136,10 @@ class _HomeScreenState extends State<HomeScreen> {
         _goals.addAll(loadedGoals);
       });
 
-      // Select Chanting by default.
+      // ----------------------------------------------------------
+      // SELECT CHANTING BY DEFAULT
+      // ----------------------------------------------------------
+
       if (types.isNotEmpty) {
         SadhanaTypeModel? chanting;
 
@@ -173,11 +183,22 @@ class _HomeScreenState extends State<HomeScreen> {
       final startDate = AppDateUtils.monthStart(_focusedDay);
       final endDate = AppDateUtils.monthEnd(_focusedDay);
 
+      // ----------------------------------------------------------
+      // MONTHLY SADHANA
+      //
+      // This returns records for the selected month.
+      // We still filter it below for the heatmap.
+      // ----------------------------------------------------------
+
       final records = await _repository.getSadhanaForMonth(
         _userId!,
         startDate,
         endDate,
       );
+
+      // ----------------------------------------------------------
+      // AARTI MONTH
+      // ----------------------------------------------------------
 
       final aartiRecords = await _repository.getAartiAttendanceForMonth(
         _userId!,
@@ -185,10 +206,54 @@ class _HomeScreenState extends State<HomeScreen> {
         endDate,
       );
 
-      final allSadhanaRecords = await _repository.getAllSadhana(
-        _userId!,
-        _selectedSadhanaTypeId!,
-      );
+      // ----------------------------------------------------------
+      // IMPORTANT FIX:
+      //
+      // Load ALL SADHANA RECORDS for ALL SADHANA TYPES.
+      //
+      // Previously this was:
+      //
+      // getAllSadhana(userId, selectedTypeId)
+      //
+      // That caused Today's Sadhana and Monthly Quick Stats
+      // to change when the heatmap selector changed.
+      //
+      // Now we load every Sadhana type independently and merge
+      // the results into _allSadhanaRecords.
+      // ----------------------------------------------------------
+
+      final List<DailySadhanaModel> allSadhanaRecords = [];
+
+      final Set<String> loadedRecordKeys = {};
+
+      for (final type in _sadhanaTypes) {
+        if (type.id == null) {
+          continue;
+        }
+
+        try {
+          final typeRecords = await _repository.getAllSadhana(
+            _userId!,
+            type.id!,
+          );
+
+          for (final record in typeRecords) {
+            final key =
+                '${record.date}_${record.sadhanaTypeId}_${record.unit ?? ''}';
+
+            if (!loadedRecordKeys.contains(key)) {
+              loadedRecordKeys.add(key);
+              allSadhanaRecords.add(record);
+            }
+          }
+        } catch (e) {
+          debugPrint('Error loading Sadhana records for type ${type.id}: $e');
+        }
+      }
+
+      // ----------------------------------------------------------
+      // LOAD ALL AARTI
+      // ----------------------------------------------------------
 
       final allAartiRecords = await _repository.getAllAartiAttendance(_userId!);
 
@@ -204,6 +269,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // ----------------------------------------------------------
       // SELECTED SADHANA VALUES
+      //
+      // Only this data depends on selected Sadhana.
       // ----------------------------------------------------------
 
       final Map<String, double> data = {};
@@ -215,7 +282,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // ----------------------------------------------------------
-      // DAY NOTES / IMPORTANT DAYS
+      // DAY NOTES
       // ----------------------------------------------------------
 
       final Map<String, DayNoteModel> dayNotes = {};
@@ -260,13 +327,19 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       setState(() {
+        // This map contains all records from the selected month.
         _monthlySadhanaByDate = {
           for (final item in records)
             '${item.date}_${item.sadhanaTypeId}': item,
         };
+
+        // IMPORTANT:
+        // This now contains ALL Sadhana types.
         _allSadhanaRecords = allSadhanaRecords;
+
         _allAartiRecords = allAartiRecords;
 
+        // This remains selected-type-specific.
         _monthlySadhana = data;
 
         _monthlyAarti = aartiData;
@@ -299,7 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
-  // CHECK IMPORTANT DAY
+  // IMPORTANT DAY
   // ============================================================
 
   bool _isImportantDay(DateTime day) {
@@ -307,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
-  // CHECK HAS NOTE
+  // HAS NOTE
   // ============================================================
 
   bool _hasDayNote(DateTime day) {
@@ -355,6 +428,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
+  // FIND SADHANA BY NAME
+  // ============================================================
+
+  SadhanaTypeModel? _findSadhana(String name) {
+    try {
+      return _sadhanaTypes.firstWhere(
+        (type) => type.name.toLowerCase() == name.toLowerCase(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ============================================================
   // SADHANA ICON
   // ============================================================
 
@@ -363,7 +450,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
-  // DEFAULT SADHANA UNIT
+  // DEFAULT UNIT
   // ============================================================
 
   String _getDefaultUnit() {
@@ -426,7 +513,13 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _selectedSadhanaTypeId = type.id;
 
+      // Clear only selected-type heatmap data.
       _monthlySadhana = {};
+
+      // Do NOT clear _allSadhanaRecords.
+      //
+      // It contains data for Today's Sadhana and
+      // Monthly Quick Stats for every type.
 
       _currentGoal = _goals[type.id!];
     });
@@ -460,7 +553,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   'What do you want to see?',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
+
                 const SizedBox(height: 16),
+
                 ..._sadhanaTypes.map((sadhana) {
                   final selected = sadhana.id == _selectedSadhanaTypeId;
 
@@ -469,20 +564,25 @@ class _HomeScreenState extends State<HomeScreen> {
                       sadhana.icon ?? '🙏',
                       style: const TextStyle(fontSize: 28),
                     ),
+
                     title: Text(
                       sadhana.name,
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
+
                     trailing: selected
                         ? Icon(
                             Icons.check_circle,
                             color: Theme.of(sheetContext).colorScheme.primary,
                           )
                         : null,
+
                     selected: selected,
+
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
+
                     onTap: () {
                       _selectSadhana(sadhana);
                     },
@@ -496,6 +596,418 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ============================================================
+  // TODAY VALUE FOR TYPE
+  // ============================================================
+
+  double _getTodayValueForType(SadhanaTypeModel type) {
+    final todayKey = _dateKey(DateTime.now());
+
+    for (final record in _allSadhanaRecords) {
+      if (record.sadhanaTypeId == type.id && record.date == todayKey) {
+        return record.value;
+      }
+    }
+
+    return 0;
+  }
+
+  // ============================================================
+  // TODAY AARTI COUNT
+  // ============================================================
+
+  int _getTodayAartiCount() {
+    final todayKey = _dateKey(DateTime.now());
+
+    return _allAartiRecords.where((record) => record.date == todayKey).length;
+  }
+
+  // ============================================================
+  // READING GOAL COMPLETION
+  // ============================================================
+
+  bool _isTodayReadingGoalCompleted(
+    SadhanaTypeModel? reading,
+    double value,
+    GoalModel? goal,
+  ) {
+    if (reading == null || reading.id == null) {
+      return false;
+    }
+
+    if (goal == null || goal.targetValue <= 0) {
+      return false;
+    }
+
+    final todayKey = _dateKey(DateTime.now());
+
+    final recordKey = '${todayKey}_${reading.id}';
+
+    final record = _monthlySadhanaByDate[recordKey];
+
+    if (record == null) {
+      return false;
+    }
+
+    final actualUnit = record.unit;
+
+    final goalUnit = goal.unit;
+
+    if (actualUnit == null || goalUnit == null) {
+      return false;
+    }
+
+    if (actualUnit != goalUnit) {
+      return false;
+    }
+
+    return value >= goal.targetValue;
+  }
+  // ============================================================
+  // GET TODAY'S RECORD FOR TYPE
+  // ============================================================
+
+  DailySadhanaModel? _getTodayRecordForType(SadhanaTypeModel? type) {
+    if (type == null || type.id == null) {
+      return null;
+    }
+
+    final todayKey = _dateKey(DateTime.now());
+
+    for (final record in _allSadhanaRecords) {
+      if (record.sadhanaTypeId == type.id && record.date == todayKey) {
+        return record;
+      }
+    }
+
+    return null;
+  }
+  // ============================================================
+  // GET TODAY'S UNIT FOR TYPE
+  // ============================================================
+
+  String _getTodayUnitForType(
+    SadhanaTypeModel? type, {
+    String fallback = 'times',
+  }) {
+    final record = _getTodayRecordForType(type);
+
+    if (record?.unit != null && record!.unit!.trim().isNotEmpty) {
+      return record.unit!;
+    }
+
+    return fallback;
+  }
+
+  // ============================================================
+  // TODAY SADHANA SUMMARY
+  // ============================================================
+
+  Widget _buildTodaySadhana(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final chanting = _findSadhana('chanting');
+    final reading = _findSadhana('reading');
+    final hearing = _findSadhana('hearing');
+    final aarti = _findSadhana('aarti');
+
+    final chantingValue = chanting == null
+        ? 0.0
+        : _getTodayValueForType(chanting);
+
+    final readingValue = reading == null ? 0.0 : _getTodayValueForType(reading);
+
+    final hearingValue = hearing == null ? 0.0 : _getTodayValueForType(hearing);
+
+    final aartiValue = _getTodayAartiCount();
+
+    // ----------------------------------------------------------
+    // TODAY'S ACTUAL UNITS
+    // ----------------------------------------------------------
+
+    final chantingUnit = _getTodayUnitForType(chanting, fallback: 'rounds');
+
+    final readingUnit = _getTodayUnitForType(reading, fallback: 'pages');
+
+    final hearingUnit = _getTodayUnitForType(hearing, fallback: 'minutes');
+
+    // ----------------------------------------------------------
+    // GOALS
+    // ----------------------------------------------------------
+
+    final chantingGoal = chanting?.id == null ? null : _goals[chanting!.id!];
+
+    final readingGoal = reading?.id == null ? null : _goals[reading!.id!];
+
+    final hearingGoal = hearing?.id == null ? null : _goals[hearing!.id!];
+
+    final aartiGoal = aarti?.id == null ? null : _goals[aarti!.id!];
+
+    // ----------------------------------------------------------
+    // COMPLETION
+    // ----------------------------------------------------------
+
+    final chantingCompleted = _isTodayGoalCompleted(
+      chantingValue,
+      chantingGoal,
+    );
+
+    final readingCompleted = _isTodayReadingGoalCompleted(
+      reading,
+      readingValue,
+      readingGoal,
+    );
+
+    final hearingCompleted = _isTodayGoalCompleted(hearingValue, hearingGoal);
+
+    final aartiCompleted = _isTodayGoalCompleted(
+      aartiValue.toDouble(),
+      aartiGoal,
+    );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Today\'s Sadhana',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+
+                const Spacer(),
+
+                Text(
+                  DateFormat('d MMM').format(DateTime.now()),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            Row(
+              children: [
+                Expanded(
+                  child: _buildTodaySadhanaItem(
+                    context,
+                    icon: '📿',
+                    title: 'Chanting',
+                    value: _formatValue(chantingValue),
+                    unit: chantingUnit,
+                    completed: chantingCompleted,
+                    goal: chantingGoal,
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+
+                Expanded(
+                  child: _buildTodaySadhanaItem(
+                    context,
+                    icon: '📖',
+                    title: 'Reading',
+                    value: _formatValue(readingValue),
+                    unit: readingUnit,
+                    completed: readingCompleted,
+                    goal: readingGoal,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+
+            Row(
+              children: [
+                Expanded(
+                  child: _buildTodaySadhanaItem(
+                    context,
+                    icon: '🎧',
+                    title: 'Hearing',
+                    value: _formatValue(hearingValue),
+                    unit: hearingUnit,
+                    completed: hearingCompleted,
+                    goal: hearingGoal,
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+
+                Expanded(
+                  child: _buildTodaySadhanaItem(
+                    context,
+                    icon: '🪔',
+                    title: 'Aarti',
+                    value: '$aartiValue',
+                    unit: aartiValue == 1 ? 'aarti' : 'aartis',
+                    completed: aartiCompleted,
+                    goal: aartiGoal,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  // ============================================================
+  // CHECK IF TODAY'S GOAL IS COMPLETED
+  // ============================================================
+
+  bool _isTodayGoalCompleted(double value, GoalModel? goal) {
+    // No goal = cannot be considered completed.
+    if (goal == null) {
+      return false;
+    }
+
+    // Invalid goal = cannot be considered completed.
+    if (goal.targetValue <= 0) {
+      return false;
+    }
+
+    return value >= goal.targetValue;
+  }
+
+  // ============================================================
+  // TODAY SADHANA ITEM
+  // ============================================================
+
+  Widget _buildTodaySadhanaItem(
+    BuildContext context, {
+    required String icon,
+    required String title,
+    required String value,
+    required String unit,
+    required bool completed,
+    required GoalModel? goal,
+  }) {
+    final theme = Theme.of(context);
+
+    final numericValue = double.tryParse(value) ?? 0;
+
+    // ----------------------------------------------------------
+    // PROGRESS
+    // ----------------------------------------------------------
+
+    double? progress;
+
+    if (goal != null && goal.targetValue > 0) {
+      progress = numericValue / goal.targetValue;
+      progress = progress.clamp(0.0, 1.0);
+    }
+
+    // ----------------------------------------------------------
+    // BACKGROUND
+    // ----------------------------------------------------------
+
+    final backgroundColor = completed
+        ? theme.colorScheme.primaryContainer
+        : theme.colorScheme.surfaceContainerHighest;
+
+    final checkColor = theme.colorScheme.primary;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ------------------------------------------------------
+          // ICON + CHECK
+          // ------------------------------------------------------
+          Row(
+            children: [
+              Text(icon, style: const TextStyle(fontSize: 22)),
+
+              const Spacer(),
+
+              if (completed)
+                Icon(Icons.check_circle, size: 18, color: checkColor),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // ------------------------------------------------------
+          // TITLE
+          // ------------------------------------------------------
+          Text(
+            title,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+
+          const SizedBox(height: 2),
+
+          // ------------------------------------------------------
+          // VALUE
+          // ------------------------------------------------------
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                value,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: completed ? theme.colorScheme.primary : null,
+                ),
+              ),
+
+              const SizedBox(width: 4),
+
+              Flexible(
+                child: Text(
+                  unit,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // ------------------------------------------------------
+          // GOAL PROGRESS
+          // ------------------------------------------------------
+          if (goal != null && goal.targetValue > 0) ...[
+            const SizedBox(height: 8),
+
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 5,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
+            Text(
+              '${_formatValue(goal.targetValue)} ${goal.unit ?? unit}',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
   // ============================================================
   // CALENDAR DAY CLICK
   // ============================================================
@@ -594,7 +1106,9 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(type.icon ?? '🙏', style: const TextStyle(fontSize: 30)),
+
             const SizedBox(width: 8),
+
             Text(
               type.name,
               style: theme.textTheme.headlineSmall?.copyWith(
@@ -651,7 +1165,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         size: 20,
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
+
                       const SizedBox(width: 8),
+
                       Text(
                         'No daily goal set',
                         style: theme.textTheme.bodyMedium,
@@ -665,7 +1181,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         Icons.compare_arrows_outlined,
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
+
                       const SizedBox(height: 6),
+
                       Text(
                         'Goal not applicable for this unit',
                         textAlign: TextAlign.center,
@@ -673,7 +1191,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+
                       const SizedBox(height: 4),
+
                       Text(
                         'Today: ${actualUnit ?? 'unknown'} • '
                         'Goal: ${goal.unit ?? 'unknown'}',
@@ -688,7 +1208,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Goal', style: theme.textTheme.bodyMedium),
+                      const Text('Goal'),
+
                       Text(
                         '${_formatValue(goal!.targetValue)} '
                         '${goal.unit ?? ''}',
@@ -721,6 +1242,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+
                       Text(
                         '${(progress * 100).clamp(0, 100).toStringAsFixed(0)}%',
                         style: theme.textTheme.bodyMedium?.copyWith(
@@ -733,6 +1255,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   if (completed) ...[
                     const SizedBox(height: 10),
+
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -741,7 +1264,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           size: 20,
                           color: theme.colorScheme.primary,
                         ),
+
                         const SizedBox(width: 6),
+
                         Text(
                           'Daily goal completed 🎉',
                           style: TextStyle(
@@ -777,10 +1302,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final existingNote = await _repository.getDayNote(_userId!, _dateKey(day));
 
-    // ----------------------------------------------------------
-    // READING UNIT
-    // ----------------------------------------------------------
-
     String selectedReadingUnit = 'pages';
 
     if (type.name.toLowerCase() == 'reading') {
@@ -794,10 +1315,6 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedReadingUnit = settings?.unit ?? 'pages';
       }
     }
-
-    // ----------------------------------------------------------
-    // CONTROLLERS
-    // ----------------------------------------------------------
 
     final controller = TextEditingController(
       text: existing != null && existing.value > 0
@@ -817,10 +1334,6 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // ----------------------------------------------------------
-    // OPEN SHEET
-    // ----------------------------------------------------------
-
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -833,10 +1346,6 @@ class _HomeScreenState extends State<HomeScreen> {
             final isReading = type.name.toLowerCase() == 'reading';
 
             final unit = isReading ? selectedReadingUnit : _getDefaultUnit();
-
-            // ==================================================
-            // DAY DETAIL DATA
-            // ==================================================
 
             final value = existing?.value ?? 0.0;
 
@@ -861,9 +1370,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // ------------------------------------------------
-                    // DAY DETAIL
-                    // ------------------------------------------------
                     _buildDayDetailHeader(
                       context,
                       day,
@@ -875,9 +1381,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 24),
 
-                    // ------------------------------------------------
-                    // READING UNIT SELECTOR
-                    // ------------------------------------------------
                     if (isReading) ...[
                       Align(
                         alignment: Alignment.centerLeft,
@@ -925,9 +1428,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 20),
                     ],
 
-                    // ------------------------------------------------
-                    // VALUE
-                    // ------------------------------------------------
                     TextField(
                       controller: controller,
                       autofocus: true,
@@ -950,9 +1450,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 16),
 
-                    // ------------------------------------------------
-                    // STAR
-                    // ------------------------------------------------
                     Card(
                       child: SwitchListTile(
                         value: isStarred,
@@ -977,9 +1474,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 8),
 
-                    // ------------------------------------------------
-                    // NOTE
-                    // ------------------------------------------------
                     TextField(
                       controller: noteController,
                       maxLines: 3,
@@ -995,9 +1489,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 20),
 
-                    // ------------------------------------------------
-                    // SAVE
-                    // ------------------------------------------------
                     SizedBox(
                       width: double.infinity,
                       height: 52,
@@ -1122,9 +1613,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // ------------------------------------------------
-                    // DATE
-                    // ------------------------------------------------
                     Text(
                       DateFormat('EEEE, d MMMM yyyy').format(day),
                       textAlign: TextAlign.center,
@@ -1135,9 +1623,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 8),
 
-                    // ------------------------------------------------
-                    // TITLE
-                    // ------------------------------------------------
                     const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -1155,9 +1640,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 20),
 
-                    // ------------------------------------------------
-                    // DAY PROGRESS
-                    // ------------------------------------------------
                     Card(
                       elevation: 0,
                       color: Theme.of(
@@ -1172,6 +1654,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               style: Theme.of(context).textTheme.displaySmall
                                   ?.copyWith(fontWeight: FontWeight.bold),
                             ),
+
                             const Text('Aartis attended'),
 
                             if (goal != null && goal.targetValue > 0) ...[
@@ -1216,9 +1699,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 20),
 
-                    // ------------------------------------------------
-                    // AARTI LIST
-                    // ------------------------------------------------
                     if (aartiTypes.isEmpty)
                       _buildNoAartiMessage(context)
                     else
@@ -1260,9 +1740,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 8),
 
-                    // ------------------------------------------------
-                    // ADD AARTI
-                    // ------------------------------------------------
                     OutlinedButton.icon(
                       onPressed: () async {
                         final added = await _showAddAartiDialog();
@@ -1283,9 +1760,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 12),
 
-                    // ------------------------------------------------
-                    // STAR
-                    // ------------------------------------------------
                     Card(
                       child: SwitchListTile(
                         value: isStarred,
@@ -1308,9 +1782,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 8),
 
-                    // ------------------------------------------------
-                    // NOTE
-                    // ------------------------------------------------
                     TextField(
                       controller: noteController,
                       maxLines: 3,
@@ -1326,9 +1797,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 20),
 
-                    // ------------------------------------------------
-                    // SAVE
-                    // ------------------------------------------------
                     SizedBox(
                       height: 52,
                       child: FilledButton.icon(
@@ -1415,12 +1883,16 @@ class _HomeScreenState extends State<HomeScreen> {
       child: const Column(
         children: [
           Text('🪔', style: TextStyle(fontSize: 40)),
+
           SizedBox(height: 8),
+
           Text(
             'No Aarti added yet',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
           ),
+
           SizedBox(height: 4),
+
           Text('Add your regular Aartis below.', textAlign: TextAlign.center),
         ],
       ),
@@ -1439,6 +1911,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Add Aarti'),
+
           content: TextField(
             controller: controller,
             autofocus: true,
@@ -1449,6 +1922,7 @@ class _HomeScreenState extends State<HomeScreen> {
               prefixIcon: Icon(Icons.auto_awesome),
             ),
           ),
+
           actions: [
             TextButton(
               onPressed: () {
@@ -1456,6 +1930,7 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               child: const Text('CANCEL'),
             ),
+
             FilledButton(
               onPressed: () async {
                 final name = controller.text.trim();
@@ -1508,77 +1983,98 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
+  // SELECTED SADHANA RECORDS
+  //
+  // IMPORTANT:
+  // _allSadhanaRecords contains ALL types.
+  //
+  // These helper methods filter it to the currently selected
+  // type whenever the statistic is supposed to be type-specific.
+  // ============================================================
+
+  List<DailySadhanaModel> _getSelectedSadhanaRecords() {
+    final selectedId = _selectedSadhanaTypeId;
+
+    if (selectedId == null) {
+      return [];
+    }
+
+    return _allSadhanaRecords
+        .where((record) => record.sadhanaTypeId == selectedId)
+        .toList();
+  }
+
+  // ============================================================
   // HIGHEST STREAK
   // ============================================================
 
   int _calculateHighestStreak() {
-    // ============================================================
-    // AARTI
-    // ============================================================
-
+    // Aarti has its own attendance records.
     if (_selectedSadhana?.name.toLowerCase() == 'aarti') {
       if (_allAartiRecords.isEmpty) {
         return 0;
       }
 
-      // Multiple Aartis on the same day should count as ONE
-      // practiced day for streak calculation.
       final dates =
           _allAartiRecords
               .map((record) => record.date)
               .toSet()
-              .map((date) => DateTime.parse(date))
+              .map(DateTime.parse)
               .toList()
             ..sort();
 
       return _findHighestConsecutiveDays(dates);
     }
 
-    // ============================================================
-    // NORMAL SADHANA
-    // ============================================================
+    // IMPORTANT:
+    // Only calculate streak for the selected Sadhana.
+    //
+    // Previously _allSadhanaRecords could contain one selected
+    // type only. Now it contains ALL types, so we must filter it.
+    final selectedRecords = _getSelectedSadhanaRecords();
 
-    if (_allSadhanaRecords.isEmpty) {
+    if (selectedRecords.isEmpty) {
       return 0;
     }
 
     final dates =
-        _allSadhanaRecords
+        selectedRecords
             .where((record) => record.value > 0)
             .map((record) => record.date)
             .toSet()
-            .map((date) => DateTime.parse(date))
+            .map(DateTime.parse)
             .toList()
           ..sort();
 
     return _findHighestConsecutiveDays(dates);
   }
+
   // ============================================================
-  // STREAK
+  // CURRENT STREAK
   // ============================================================
 
   int _calculateCurrentStreak() {
-    // ------------------------------------------------------------
-    // AARTI STREAK
-    // ------------------------------------------------------------
+    // Aarti streak.
     if (_selectedSadhana?.name.toLowerCase() == 'aarti') {
-      if (_monthlyAarti.isEmpty) {
+      if (_allAartiRecords.isEmpty) {
         return 0;
       }
 
-      DateTime date = DateTime.now();
+      final dates = _allAartiRecords
+          .map((record) => record.date)
+          .toSet()
+          .map(DateTime.parse)
+          .toSet();
+
+      DateTime date = DateTime(
+        DateTime.now().year,
+        DateTime.now().month,
+        DateTime.now().day,
+      );
+
       int streak = 0;
 
-      while (true) {
-        final key = AppDateUtils.formatDate(date);
-
-        final aartiCount = _monthlyAarti[key] ?? 0;
-
-        // At least one Aarti attended on this day
-        if (aartiCount <= 0) {
-          break;
-        }
-
+      while (dates.contains(date)) {
         streak++;
 
         date = date.subtract(const Duration(days: 1));
@@ -1591,24 +2087,31 @@ class _HomeScreenState extends State<HomeScreen> {
       return streak;
     }
 
-    // ------------------------------------------------------------
-    // NORMAL SADHANA STREAK
-    // ------------------------------------------------------------
-    if (_monthlySadhana.isEmpty) {
+    // IMPORTANT:
+    // Only selected Sadhana records should contribute to
+    // the selected Sadhana streak.
+    final selectedRecords = _getSelectedSadhanaRecords();
+
+    if (selectedRecords.isEmpty) {
       return 0;
     }
 
-    DateTime date = DateTime.now();
+    final dates = selectedRecords
+        .where((record) => record.value > 0)
+        .map((record) => record.date)
+        .toSet()
+        .map(DateTime.parse)
+        .toSet();
+
+    DateTime date = DateTime(
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
+    );
 
     int streak = 0;
 
-    while (true) {
-      final value = _getValueForDay(date);
-
-      if (value <= 0) {
-        break;
-      }
-
+    while (dates.contains(date)) {
       streak++;
 
       date = date.subtract(const Duration(days: 1));
@@ -1620,6 +2123,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return streak;
   }
+
+  // ============================================================
+  // FIND HIGHEST CONSECUTIVE DAYS
+  // ============================================================
 
   int _findHighestConsecutiveDays(List<DateTime> dates) {
     if (dates.isEmpty) {
@@ -1649,6 +2156,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return highestStreak;
   }
+
   // ============================================================
   // STREAK CARD
   // ============================================================
@@ -1657,6 +2165,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = Theme.of(context);
 
     final streak = _calculateCurrentStreak();
+
     final highestStreak = _calculateHighestStreak();
 
     return Card(
@@ -1701,13 +2210,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     '${highestStreak == 1 ? 'Day' : 'Days'}',
                     style: TextStyle(
                       fontSize: 13,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      color: theme.colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
               ),
             ),
+
             const Icon(Icons.local_fire_department),
           ],
         ),
@@ -1738,7 +2248,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Showing', style: theme.textTheme.bodySmall),
+                    Text('Monthly heatmap', style: theme.textTheme.bodySmall),
 
                     Text(
                       _selectedSadhana?.name ?? 'Sadhana',
@@ -1770,7 +2280,9 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(8),
         child: TableCalendar(
           firstDay: DateTime(2020),
+
           lastDay: DateTime(2100),
+
           focusedDay: _focusedDay,
 
           selectedDayPredicate: (day) {
@@ -1798,6 +2310,8 @@ class _HomeScreenState extends State<HomeScreen> {
           },
 
           calendarFormat: CalendarFormat.month,
+
+          rowHeight: 64,
 
           headerStyle: const HeaderStyle(
             titleCentered: true,
@@ -1867,19 +2381,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final hasValue = value > 0;
 
-    final bool reachedGoal = progress != null && progress >= 1.0;
+    final reachedGoal = progress != null && progress >= 1.0;
 
     final valueTextColor = reachedGoal
         ? theme.colorScheme.onPrimary
         : theme.colorScheme.onSurface;
 
-    // ----------------------------------------------------------
-    // IMPORTANT DAY / NOTE
-    // ----------------------------------------------------------
+    final isImportant = _isImportantDay(day);
 
-    final bool isImportant = _isImportantDay(day);
-
-    final bool hasNote = _hasDayNote(day);
+    final hasNote = _hasDayNote(day);
 
     return Container(
       margin: const EdgeInsets.all(2),
@@ -1894,60 +2404,55 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Stack(
         children: [
-          // ----------------------------------------------------
-          // DATE
-          // ----------------------------------------------------
           Positioned(
             top: 5,
-            right: 6,
+            left: 6,
             child: Text(
               '${day.day}',
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: isToday || isSelected
                     ? FontWeight.bold
-                    : FontWeight.normal,
+                    : FontWeight.w500,
+                color: theme.colorScheme.onSurface,
               ),
             ),
           ),
 
-          // ----------------------------------------------------
-          // IMPORTANT STAR
-          // ----------------------------------------------------
-          if (isImportant)
-            Positioned(
-              top: 4,
-              left: 5,
-              child: Icon(Icons.star, size: 15, color: Colors.amber.shade700),
+          Positioned.fill(
+            child: Center(
+              child: hasValue
+                  ? Text(
+                      _formatValue(value),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: valueTextColor,
+                      ),
+                    )
+                  : null,
             ),
-
-          // ----------------------------------------------------
-          // SADHANA VALUE
-          // ----------------------------------------------------
-          Center(
-            child: hasValue
-                ? Text(
-                    _formatValue(value),
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: valueTextColor,
-                    ),
-                  )
-                : null,
           ),
 
-          // ----------------------------------------------------
-          // NOTE INDICATOR
-          // ----------------------------------------------------
-          if (hasNote)
+          if (isImportant || hasNote)
             Positioned(
-              right: 5,
               bottom: 4,
-              child: Icon(
-                Icons.sticky_note_2,
-                size: 14,
-                color: theme.colorScheme.onSurfaceVariant,
+              right: 5,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isImportant)
+                    Icon(Icons.star, size: 10, color: Colors.amber.shade700),
+
+                  if (isImportant && hasNote) const SizedBox(width: 2),
+
+                  if (hasNote)
+                    Icon(
+                      Icons.note_alt,
+                      size: 10,
+                      color: theme.colorScheme.secondary,
+                    ),
+                ],
               ),
             ),
         ],
@@ -1978,37 +2483,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
-  // TODAY BUTTON
-  // ============================================================
-
-  Widget _buildTodayButton(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return FilledButton.icon(
-      onPressed: () {
-        final today = DateTime.now();
-
-        setState(() {
-          _selectedDay = today;
-          _focusedDay = today;
-        });
-
-        _showDaySadhanaSheet(today);
-      },
-      icon: const Icon(Icons.add),
-      label: const Text(
-        "UPDATE TODAY'S SADHANA",
-        style: TextStyle(fontWeight: FontWeight.bold),
-      ),
-      style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(54),
-        backgroundColor: theme.colorScheme.primary,
-      ),
-    );
-  }
-
-  // ============================================================
-  // GOAL PROGRESS FOR NORMAL SADHANA
+  // GOAL PROGRESS NORMAL SADHANA
   // ============================================================
 
   double? _getGoalProgressForDay(DateTime day) {
@@ -2029,10 +2504,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (value <= 0) {
       return 0;
     }
-
-    // ----------------------------------------------------------
-    // READING SPECIAL HANDLING
-    // ----------------------------------------------------------
 
     if (selected.name.toLowerCase() == 'reading') {
       final dailyUnit = _getUnitForDay(day);
@@ -2064,6 +2535,461 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
+  // MONTHLY QUICK STATS
+  //
+  // IMPORTANT:
+  // These stats intentionally use _allSadhanaRecords.
+  //
+  // Therefore they remain unchanged when the user switches
+  // between Chanting / Reading / Hearing in the selector.
+  // ============================================================
+  Widget _buildMonthlyQuickStats(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final monthStart = AppDateUtils.monthStart(_focusedDay);
+    final monthEnd = AppDateUtils.monthEnd(_focusedDay);
+
+    final start = DateTime.parse(monthStart);
+    final end = DateTime.parse(monthEnd);
+
+    final monthRecords = _allSadhanaRecords.where((record) {
+      final date = DateTime.parse(record.date);
+
+      return !date.isBefore(start) && !date.isAfter(end);
+    }).toList();
+
+    final monthAarti = _allAartiRecords.where((record) {
+      final date = DateTime.parse(record.date);
+
+      return !date.isBefore(start) && !date.isAfter(end);
+    }).toList();
+
+    // ----------------------------------------------------------
+    // PRACTICED DAYS
+    // ----------------------------------------------------------
+
+    final practicedDates = <String>{};
+
+    for (final record in monthRecords) {
+      if (record.value > 0) {
+        practicedDates.add(record.date);
+      }
+    }
+
+    for (final record in monthAarti) {
+      practicedDates.add(record.date);
+    }
+
+    // ----------------------------------------------------------
+    // SADHANA TYPES
+    // ----------------------------------------------------------
+
+    final chanting = _findSadhana('chanting');
+    final reading = _findSadhana('reading');
+    final hearing = _findSadhana('hearing');
+
+    // ----------------------------------------------------------
+    // TOTALS
+    // ----------------------------------------------------------
+
+    double chantingTotal = 0;
+    double readingTotal = 0;
+    double hearingTotal = 0;
+
+    // ----------------------------------------------------------
+    // READING GOAL
+    // ----------------------------------------------------------
+
+    final readingGoal = reading?.id == null ? null : _goals[reading!.id!];
+
+    // Current Reading unit.
+
+    final readingUnit = readingGoal?.unit?.trim().isNotEmpty == true
+        ? readingGoal!.unit!
+        : 'pages';
+
+    // ----------------------------------------------------------
+    // CALCULATE TOTALS
+    // ----------------------------------------------------------
+
+    for (final record in monthRecords) {
+      if (record.value <= 0) {
+        continue;
+      }
+
+      // --------------------------------------------------------
+      // CHANTING
+      // --------------------------------------------------------
+
+      if (chanting != null && record.sadhanaTypeId == chanting.id) {
+        chantingTotal += record.value;
+      }
+
+      // --------------------------------------------------------
+      // READING
+      // --------------------------------------------------------
+
+      if (reading != null && record.sadhanaTypeId == reading.id) {
+        final recordUnit = record.unit?.trim().isNotEmpty == true
+            ? record.unit!.trim()
+            : 'pages';
+
+        // Only count records using the current Reading unit.
+        if (recordUnit == readingUnit) {
+          readingTotal += record.value;
+        }
+      }
+
+      // --------------------------------------------------------
+      // HEARING
+      // --------------------------------------------------------
+
+      if (hearing != null && record.sadhanaTypeId == hearing.id) {
+        hearingTotal += record.value;
+      }
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ----------------------------------------------------
+            // HEADER
+            // ----------------------------------------------------
+            Row(
+              children: [
+                const Text(
+                  'Monthly Quick Stats',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+
+                const Spacer(),
+
+                Text(
+                  DateFormat('MMMM yyyy').format(_focusedDay),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // ----------------------------------------------------
+            // ROW 1
+            // ----------------------------------------------------
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatItem(
+                    context,
+                    icon: Icons.calendar_today_outlined,
+                    value: '${practicedDates.length}',
+                    label: 'Days practiced',
+                  ),
+                ),
+
+                Expanded(
+                  child: _buildStatItem(
+                    context,
+                    icon: Icons.self_improvement,
+                    value: _formatValue(chantingTotal),
+                    label: 'Rounds',
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            // ----------------------------------------------------
+            // ROW 2
+            // ----------------------------------------------------
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatItem(
+                    context,
+                    icon: Icons.menu_book_outlined,
+                    value: _formatValue(readingTotal),
+                    label: _formatReadingUnitLabel(readingUnit),
+                  ),
+                ),
+
+                Expanded(
+                  child: _buildStatItem(
+                    context,
+                    icon: Icons.headphones_outlined,
+                    value: _formatValue(hearingTotal),
+                    label: 'Hearing min',
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            // ----------------------------------------------------
+            // ROW 3
+            // ----------------------------------------------------
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatItem(
+                    context,
+                    icon: Icons.local_fire_department_outlined,
+                    value: '${monthAarti.length}',
+                    label: 'Aarti attendance',
+                  ),
+                ),
+
+                const Expanded(child: SizedBox()),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // READING UNIT LABEL
+  // ============================================================
+
+  String _formatReadingUnitLabel(String unit) {
+    switch (unit.toLowerCase()) {
+      case 'page':
+      case 'pages':
+        return 'Pages';
+
+      case 'shloka':
+      case 'shlokas':
+        return 'Shlokas';
+
+      case 'minute':
+      case 'minutes':
+        return 'Reading min';
+
+      default:
+        return unit;
+    }
+  }
+  // ============================================================
+  // STAT ITEM
+  // ============================================================
+
+  Widget _buildStatItem(
+    BuildContext context, {
+    required IconData icon,
+    required String value,
+    required String label,
+  }) {
+    final theme = Theme.of(context);
+
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(
+            icon,
+            size: 20,
+            color: theme.colorScheme.onPrimaryContainer,
+          ),
+        ),
+
+        const SizedBox(width: 10),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // MONTHLY INSIGHTS CARD
+  // ============================================================
+
+  Widget _buildMonthlyInsightsCard(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const MonthlyInsightsScreen()),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.insights_outlined,
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
+              ),
+
+              const SizedBox(width: 14),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Monthly Insights',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+
+                    const SizedBox(height: 3),
+
+                    Text(
+                      'See your progress, patterns and devotional consistency.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const Icon(Icons.arrow_forward_ios, size: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // FIXED TODAY BUTTON
+  // ============================================================
+
+  Widget _buildFixedTodayButton(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 12,
+              offset: const Offset(0, -3),
+            ),
+          ],
+        ),
+        child: SizedBox(
+          height: 54,
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () {
+              final today = DateTime.now();
+
+              setState(() {
+                _selectedDay = today;
+                _focusedDay = today;
+              });
+
+              _showDaySadhanaSheet(today);
+            },
+            icon: const Icon(Icons.add),
+            label: const Text(
+              "UPDATE TODAY'S SADHANA",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: theme.colorScheme.primary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // RELOAD GOALS
+  // ============================================================
+
+  Future<void> _reloadGoals() async {
+    if (_userId == null) {
+      return;
+    }
+
+    try {
+      final Map<int, GoalModel?> loadedGoals = {};
+
+      for (final type in _sadhanaTypes) {
+        if (type.id == null) {
+          continue;
+        }
+
+        loadedGoals[type.id!] = await _repository.getGoal(_userId!, type.id!);
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _goals.clear();
+
+        _goals.addAll(loadedGoals);
+
+        _currentGoal = _selectedSadhanaTypeId == null
+            ? null
+            : _goals[_selectedSadhanaTypeId!];
+      });
+
+      await _loadMonthlyData();
+    } catch (e) {
+      debugPrint('Error reloading goals: $e');
+    }
+  }
+
+  // ============================================================
   // BUILD
   // ============================================================
 
@@ -2076,6 +3002,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return Scaffold(
+      // ========================================================
+      // APP BAR
+      // ========================================================
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2123,68 +3052,69 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
 
+      // ========================================================
+      // FIXED BOTTOM BUTTON
+      // ========================================================
+      bottomNavigationBar: _buildFixedTodayButton(context),
+
+      // ========================================================
+      // BODY
+      // ========================================================
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildStreakCard(context),
+        child: RefreshIndicator(
+          onRefresh: _loadMonthlyData,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // ------------------------------------------------
+                // TODAY'S SADHANA
+                // ------------------------------------------------
+                _buildTodaySadhana(context),
 
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-              _buildSadhanaSelector(context),
+                // ------------------------------------------------
+                // STREAK
+                // ------------------------------------------------
+                _buildStreakCard(context),
 
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-              _buildCalendar(context),
+                // ------------------------------------------------
+                // SADHANA SELECTOR
+                // ------------------------------------------------
+                _buildSadhanaSelector(context),
 
-              const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
-              _buildTodayButton(context),
-            ],
+                // ------------------------------------------------
+                // MONTHLY CALENDAR
+                // ------------------------------------------------
+                _buildCalendar(context),
+
+                const SizedBox(height: 16),
+
+                // ------------------------------------------------
+                // MONTHLY QUICK STATS
+                // ------------------------------------------------
+                _buildMonthlyQuickStats(context),
+
+                const SizedBox(height: 16),
+
+                // ------------------------------------------------
+                // MONTHLY INSIGHTS
+                // ------------------------------------------------
+                _buildMonthlyInsightsCard(context),
+
+                const SizedBox(height: 12),
+              ],
+            ),
           ),
         ),
       ),
     );
-  }
-
-  // ============================================================
-  // RELOAD GOALS
-  // ============================================================
-
-  Future<void> _reloadGoals() async {
-    if (_userId == null) {
-      return;
-    }
-
-    try {
-      final Map<int, GoalModel?> loadedGoals = {};
-
-      for (final type in _sadhanaTypes) {
-        if (type.id == null) {
-          continue;
-        }
-
-        loadedGoals[type.id!] = await _repository.getGoal(_userId!, type.id!);
-      }
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _goals.clear();
-        _goals.addAll(loadedGoals);
-
-        _currentGoal = _selectedSadhanaTypeId == null
-            ? null
-            : _goals[_selectedSadhanaTypeId!];
-      });
-
-      await _loadMonthlyData();
-    } catch (e) {
-      debugPrint('Error reloading goals: $e');
-    }
   }
 }
