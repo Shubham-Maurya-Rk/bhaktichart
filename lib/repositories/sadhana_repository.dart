@@ -201,6 +201,39 @@ class SadhanaRepository {
     return DailySadhanaModel.fromMap(result.first);
   }
 
+  Future<List<DailySadhanaModel>> getAllSadhana(
+    int userId,
+    int sadhanaTypeId,
+  ) async {
+    final db = await _db;
+
+    final result = await db.query(
+      'daily_sadhana',
+      where: '''
+      user_id = ?
+      AND sadhana_type_id = ?
+      AND value > 0
+    ''',
+      whereArgs: [userId, sadhanaTypeId],
+      orderBy: 'date ASC',
+    );
+
+    return result.map(DailySadhanaModel.fromMap).toList();
+  }
+
+  Future<List<DailyAartiModel>> getAllAartiAttendance(int userId) async {
+    final db = await _db;
+
+    final result = await db.query(
+      'daily_aarti',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'date ASC',
+    );
+
+    return result.map(DailyAartiModel.fromMap).toList();
+  }
+
   Future<List<DailySadhanaModel>> getSadhanaForMonth(
     int userId,
     String startDate,

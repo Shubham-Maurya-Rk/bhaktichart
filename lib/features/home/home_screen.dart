@@ -58,6 +58,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Map<String, int> _monthlyAarti = {};
 
+  List<DailySadhanaModel> _allSadhanaRecords = [];
+  List<DailyAartiModel> _allAartiRecords = [];
+
   // ============================================================
   // DAY NOTES / IMPORTANT DAYS
   // ============================================================
@@ -182,6 +185,13 @@ class _HomeScreenState extends State<HomeScreen> {
         endDate,
       );
 
+      final allSadhanaRecords = await _repository.getAllSadhana(
+        _userId!,
+        _selectedSadhanaTypeId!,
+      );
+
+      final allAartiRecords = await _repository.getAllAartiAttendance(_userId!);
+
       // ----------------------------------------------------------
       // AARTI COUNT
       // ----------------------------------------------------------
@@ -254,6 +264,8 @@ class _HomeScreenState extends State<HomeScreen> {
           for (final item in records)
             '${item.date}_${item.sadhanaTypeId}': item,
         };
+        _allSadhanaRecords = allSadhanaRecords;
+        _allAartiRecords = allAartiRecords;
 
         _monthlySadhana = data;
 
@@ -1496,6 +1508,52 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
+  // HIGHEST STREAK
+  // ============================================================
+
+  int _calculateHighestStreak() {
+    // ============================================================
+    // AARTI
+    // ============================================================
+
+    if (_selectedSadhana?.name.toLowerCase() == 'aarti') {
+      if (_allAartiRecords.isEmpty) {
+        return 0;
+      }
+
+      // Multiple Aartis on the same day should count as ONE
+      // practiced day for streak calculation.
+      final dates =
+          _allAartiRecords
+              .map((record) => record.date)
+              .toSet()
+              .map((date) => DateTime.parse(date))
+              .toList()
+            ..sort();
+
+      return _findHighestConsecutiveDays(dates);
+    }
+
+    // ============================================================
+    // NORMAL SADHANA
+    // ============================================================
+
+    if (_allSadhanaRecords.isEmpty) {
+      return 0;
+    }
+
+    final dates =
+        _allSadhanaRecords
+            .where((record) => record.value > 0)
+            .map((record) => record.date)
+            .toSet()
+            .map((date) => DateTime.parse(date))
+            .toList()
+          ..sort();
+
+    return _findHighestConsecutiveDays(dates);
+  }
+  // ============================================================
   // STREAK
   // ============================================================
 
@@ -1562,6 +1620,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return streak;
   }
+
+  int _findHighestConsecutiveDays(List<DateTime> dates) {
+    if (dates.isEmpty) {
+      return 0;
+    }
+
+    if (dates.length == 1) {
+      return 1;
+    }
+
+    int highestStreak = 1;
+    int currentStreak = 1;
+
+    for (int i = 1; i < dates.length; i++) {
+      final difference = dates[i].difference(dates[i - 1]).inDays;
+
+      if (difference == 1) {
+        currentStreak++;
+
+        if (currentStreak > highestStreak) {
+          highestStreak = currentStreak;
+        }
+      } else {
+        currentStreak = 1;
+      }
+    }
+
+    return highestStreak;
+  }
   // ============================================================
   // STREAK CARD
   // ============================================================
@@ -1570,6 +1657,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = Theme.of(context);
 
     final streak = _calculateCurrentStreak();
+    final highestStreak = _calculateHighestStreak();
 
     return Card(
       child: Padding(
@@ -1605,10 +1693,21 @@ class _HomeScreenState extends State<HomeScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+
+                  const SizedBox(height: 4),
+
+                  Text(
+                    '🏆 Highest: $highestStreak '
+                    '${highestStreak == 1 ? 'Day' : 'Days'}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ],
               ),
             ),
-
             const Icon(Icons.local_fire_department),
           ],
         ),
