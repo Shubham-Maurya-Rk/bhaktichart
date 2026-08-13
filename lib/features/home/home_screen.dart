@@ -10,6 +10,7 @@ import 'package:bhaktichart/repositories/sadhana_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:bhaktichart/features/insights/monthly_insights_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -1499,6 +1500,42 @@ class _HomeScreenState extends State<HomeScreen> {
   // ============================================================
 
   int _calculateCurrentStreak() {
+    // ------------------------------------------------------------
+    // AARTI STREAK
+    // ------------------------------------------------------------
+    if (_selectedSadhana?.name.toLowerCase() == 'aarti') {
+      if (_monthlyAarti.isEmpty) {
+        return 0;
+      }
+
+      DateTime date = DateTime.now();
+      int streak = 0;
+
+      while (true) {
+        final key = AppDateUtils.formatDate(date);
+
+        final aartiCount = _monthlyAarti[key] ?? 0;
+
+        // At least one Aarti attended on this day
+        if (aartiCount <= 0) {
+          break;
+        }
+
+        streak++;
+
+        date = date.subtract(const Duration(days: 1));
+
+        if (streak > 3650) {
+          break;
+        }
+      }
+
+      return streak;
+    }
+
+    // ------------------------------------------------------------
+    // NORMAL SADHANA STREAK
+    // ------------------------------------------------------------
     if (_monthlySadhana.isEmpty) {
       return 0;
     }
@@ -1525,7 +1562,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return streak;
   }
-
   // ============================================================
   // STREAK CARD
   // ============================================================
@@ -1956,6 +1992,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
 
         actions: [
+          IconButton(
+            tooltip: 'Monthly Insights',
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const MonthlyInsightsScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.insights_outlined),
+          ),
+
           IconButton(
             tooltip: 'Goals',
             onPressed: () async {

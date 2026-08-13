@@ -99,8 +99,8 @@ class SadhanaRepository {
       'daily_aarti',
       where: '''
       user_id = ?
-      AND date >= ?
-      AND date <= ?
+      AND substr(date, 1, 10) >= ?
+      AND substr(date, 1, 10) <= ?
     ''',
       whereArgs: [userId, startDate, endDate],
       orderBy: 'date ASC',
@@ -159,31 +159,21 @@ class SadhanaRepository {
   Future<void> saveSadhana(DailySadhanaModel sadhana) async {
     final db = await _db;
 
-    final existing = await db.query(
-      'daily_sadhana',
-      where: '''
-        user_id = ?
-        AND date = ?
-        AND sadhana_type_id = ?
-      ''',
-      whereArgs: [sadhana.userId, sadhana.date, sadhana.sadhanaTypeId],
-      limit: 1,
-    );
+    final data = {
+      'user_id': sadhana.userId,
+      'date': sadhana.date,
+      'sadhana_type_id': sadhana.sadhanaTypeId,
+      'value': sadhana.value,
+      'unit': sadhana.unit,
+      'created_at': sadhana.createdAt,
+      'updated_at': sadhana.updatedAt,
+    };
 
-    if (existing.isEmpty) {
-      await db.insert('daily_sadhana', sadhana.toMap());
-    } else {
-      await db.update(
-        'daily_sadhana',
-        {
-          'value': sadhana.value,
-          'unit': sadhana.unit,
-          'updated_at': sadhana.updatedAt,
-        },
-        where: 'id = ?',
-        whereArgs: [existing.first['id']],
-      );
-    }
+    await db.insert(
+      'daily_sadhana',
+      data,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<DailySadhanaModel?> getSadhana(
@@ -221,17 +211,16 @@ class SadhanaRepository {
     final result = await db.query(
       'daily_sadhana',
       where: '''
-        user_id = ?
-        AND date >= ?
-        AND date <= ?
-      ''',
+      user_id = ?
+      AND substr(date, 1, 10) >= ?
+      AND substr(date, 1, 10) <= ?
+    ''',
       whereArgs: [userId, startDate, endDate],
       orderBy: 'date ASC',
     );
 
-    return result.map(DailySadhanaModel.fromMap).toList();
+    return result.map((map) => DailySadhanaModel.fromMap(map)).toList();
   }
-
   // =====================================================
   // READING SETTINGS
   // =====================================================
@@ -309,9 +298,16 @@ class SadhanaRepository {
   Future<void> saveAartiAttendance(DailyAartiModel attendance) async {
     final db = await _db;
 
+    final data = {
+      'user_id': attendance.userId,
+      'aarti_type_id': attendance.aartiTypeId,
+      'date': attendance.date,
+      'created_at': attendance.createdAt,
+    };
+
     await db.insert(
       'daily_aarti',
-      attendance.toMap(),
+      data,
       conflictAlgorithm: ConflictAlgorithm.ignore,
     );
   }
@@ -376,21 +372,50 @@ class SadhanaRepository {
     return DayNoteModel.fromMap(result.first);
   }
 
+  Future<List<DayNoteModel>> getDayNotesForMonth(
+    int userId,
+    String startDate,
+    String endDate,
+  ) async {
+    final db = await _db;
+
+    final result = await db.query(
+      'day_notes',
+      where: '''
+      user_id = ?
+      AND date >= ?
+      AND date <= ?
+    ''',
+      whereArgs: [userId, startDate, endDate],
+      orderBy: 'date ASC',
+    );
+
+    return result.map(DayNoteModel.fromMap).toList();
+  }
+
   Future<void> saveDayNote(DayNoteModel note) async {
     final db = await _db;
 
     final existing = await db.query(
       'day_notes',
+      columns: ['id'],
       where: '''
-        user_id = ?
-        AND date = ?
-      ''',
+      user_id = ?
+      AND date = ?
+    ''',
       whereArgs: [note.userId, note.date],
       limit: 1,
     );
 
     if (existing.isEmpty) {
-      await db.insert('day_notes', note.toMap());
+      await db.insert('day_notes', {
+        'user_id': note.userId,
+        'date': note.date,
+        'is_starred': note.isStarred ? 1 : 0,
+        'note': note.note,
+        'created_at': note.createdAt,
+        'updated_at': note.updatedAt,
+      });
     } else {
       await db.update(
         'day_notes',
@@ -404,7 +429,6 @@ class SadhanaRepository {
       );
     }
   }
-
   // =====================================================
   // GOALS
   // =====================================================
