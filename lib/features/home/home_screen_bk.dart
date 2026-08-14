@@ -454,7 +454,11 @@ class _HomeScreenState extends State<HomeScreen> {
   // ============================================================
 
   String _getDefaultUnit() {
-    final name = _selectedSadhana?.name.toLowerCase();
+    return _getDefaultUnitForType(_selectedSadhana);
+  }
+
+  String _getDefaultUnitForType(SadhanaTypeModel? type) {
+    final name = type?.name.toLowerCase();
 
     switch (name) {
       case 'chanting':
@@ -804,6 +808,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     unit: chantingUnit,
                     completed: chantingCompleted,
                     goal: chantingGoal,
+                    onTap: chanting == null
+                        ? null
+                        : () => _showDaySadhanaSheet(
+                            DateTime.now(),
+                            typeOverride: chanting,
+                          ),
                   ),
                 ),
 
@@ -818,6 +828,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     unit: readingUnit,
                     completed: readingCompleted,
                     goal: readingGoal,
+                    onTap: reading == null
+                        ? null
+                        : () => _showDaySadhanaSheet(
+                            DateTime.now(),
+                            typeOverride: reading,
+                          ),
                   ),
                 ),
               ],
@@ -836,6 +852,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     unit: hearingUnit,
                     completed: hearingCompleted,
                     goal: hearingGoal,
+                    onTap: hearing == null
+                        ? null
+                        : () => _showDaySadhanaSheet(
+                            DateTime.now(),
+                            typeOverride: hearing,
+                          ),
                   ),
                 ),
 
@@ -850,6 +872,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     unit: aartiValue == 1 ? 'aarti' : 'aartis',
                     completed: aartiCompleted,
                     goal: aartiGoal,
+                    onTap: aarti == null
+                        ? null
+                        : () => _showDaySadhanaSheet(
+                            DateTime.now(),
+                            typeOverride: aarti,
+                          ),
                   ),
                 ),
               ],
@@ -889,6 +917,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String unit,
     required bool completed,
     required GoalModel? goal,
+    VoidCallback? onTap,
   }) {
     final theme = Theme.of(context);
 
@@ -915,98 +944,107 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final checkColor = theme.colorScheme.primary;
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: backgroundColor,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ------------------------------------------------------
-          // ICON + CHECK
-          // ------------------------------------------------------
-          Row(
-            children: [
-              Text(icon, style: const TextStyle(fontSize: 22)),
-
-              const Spacer(),
-
-              if (completed)
-                Icon(Icons.check_circle, size: 18, color: checkColor),
-            ],
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(14),
           ),
-
-          const SizedBox(height: 8),
-
-          // ------------------------------------------------------
-          // TITLE
-          // ------------------------------------------------------
-          Text(
-            title,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-
-          const SizedBox(height: 2),
-
-          // ------------------------------------------------------
-          // VALUE
-          // ------------------------------------------------------
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ------------------------------------------------------
+              // ICON + CHECK
+              // ------------------------------------------------------
+              Row(
+                children: [
+                  Text(icon, style: const TextStyle(fontSize: 22)),
+
+                  const Spacer(),
+
+                  if (completed)
+                    Icon(Icons.check_circle, size: 18, color: checkColor),
+                ],
+              ),
+
+              const SizedBox(height: 8),
+
+              // ------------------------------------------------------
+              // TITLE
+              // ------------------------------------------------------
               Text(
-                value,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: completed ? theme.colorScheme.primary : null,
+                title,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
                 ),
               ),
 
-              const SizedBox(width: 4),
+              const SizedBox(height: 2),
 
-              Flexible(
-                child: Text(
-                  unit,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
+              // ------------------------------------------------------
+              // VALUE
+              // ------------------------------------------------------
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    value,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: completed ? theme.colorScheme.primary : null,
+                    ),
+                  ),
+
+                  const SizedBox(width: 4),
+
+                  Flexible(
+                    child: Text(
+                      unit,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              // ------------------------------------------------------
+              // GOAL PROGRESS
+              // ------------------------------------------------------
+              if (goal != null && goal.targetValue > 0) ...[
+                const SizedBox(height: 8),
+
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 5,
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                  ),
+                ),
+
+                const SizedBox(height: 4),
+
+                Text(
+                  '${_formatValue(goal.targetValue)} ${goal.unit ?? unit}',
+                  style: theme.textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-              ),
+              ],
             ],
           ),
-
-          // ------------------------------------------------------
-          // GOAL PROGRESS
-          // ------------------------------------------------------
-          if (goal != null && goal.targetValue > 0) ...[
-            const SizedBox(height: 8),
-
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 5,
-                backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              ),
-            ),
-
-            const SizedBox(height: 4),
-
-            Text(
-              '${_formatValue(goal.targetValue)} ${goal.unit ?? unit}',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ],
+        ),
       ),
     );
+    // The Material/InkWell wrapper above preserves the existing card UI while
+    // making each Today's Sadhana item tappable.
   }
   // ============================================================
   // CALENDAR DAY CLICK
@@ -1039,12 +1077,18 @@ class _HomeScreenState extends State<HomeScreen> {
   // DAY SADHANA SHEET
   // ============================================================
 
-  Future<void> _showDaySadhanaSheet(DateTime day) async {
+  Future<void> _showDaySadhanaSheet(
+    DateTime day, {
+    SadhanaTypeModel? typeOverride,
+  }) async {
     if (_userId == null) {
       return;
     }
 
-    final type = _selectedSadhana;
+    // The optional override is used only by the bottom-sheet switcher.
+    // It deliberately does NOT change _selectedSadhanaTypeId, so switching
+    // inside the sheet does not change the monthly heatmap selection.
+    final type = typeOverride ?? _selectedSadhana;
 
     if (type == null) {
       return;
@@ -1056,6 +1100,94 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     await _showValueSadhanaSheet(day, type);
+  }
+
+  // ============================================================
+  // BOTTOM SHEET SADHANA SWITCHER
+  // ============================================================
+
+  Widget _buildBottomSheetSadhanaSwitcher(
+    BuildContext context,
+    DateTime day,
+    SadhanaTypeModel currentType,
+  ) {
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+        child: DropdownButtonFormField<int>(
+          value: currentType.id,
+          decoration: const InputDecoration(
+            labelText: 'Sadhana',
+            prefixIcon: Icon(Icons.swap_vert),
+            border: InputBorder.none,
+            isDense: true,
+          ),
+          items: _sadhanaTypes
+              .where((sadhana) => sadhana.id != null)
+              .map(
+                (sadhana) => DropdownMenuItem<int>(
+                  value: sadhana.id!,
+                  child: Row(
+                    children: [
+                      Text(
+                        sadhana.icon ?? '🙏',
+                        style: const TextStyle(fontSize: 21),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        sadhana.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
+          onChanged: (id) async {
+            if (id == null || id == currentType.id) {
+              return;
+            }
+
+            SadhanaTypeModel? nextType;
+
+            for (final sadhana in _sadhanaTypes) {
+              if (sadhana.id == id) {
+                nextType = sadhana;
+                break;
+              }
+            }
+
+            if (nextType == null || !context.mounted) {
+              return;
+            }
+
+            await _switchSadhanaInBottomSheet(context, day, nextType);
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _switchSadhanaInBottomSheet(
+    BuildContext sheetContext,
+    DateTime day,
+    SadhanaTypeModel nextType,
+  ) async {
+    // Close only the current sheet, then immediately open the selected
+    // Sadhana's editor. The monthly Sadhana selector remains untouched.
+    Navigator.of(sheetContext).pop();
+
+    await Future<void>.delayed(Duration.zero);
+
+    if (!mounted) {
+      return;
+    }
+
+    await _showDaySadhanaSheet(day, typeOverride: nextType);
   }
 
   // ============================================================
@@ -1370,6 +1502,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    _buildBottomSheetSadhanaSwitcher(context, day, type),
+
+                    const SizedBox(height: 12),
+
                     _buildDayDetailHeader(
                       context,
                       day,
@@ -1598,7 +1734,8 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            final goal = _goals[_selectedSadhanaTypeId];
+            final aartiType = _findSadhana('aarti');
+            final goal = aartiType?.id == null ? null : _goals[aartiType!.id!];
 
             final count = selectedIds.length;
 
@@ -1613,6 +1750,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (_findSadhana('aarti') != null)
+                      _buildBottomSheetSadhanaSwitcher(
+                        context,
+                        day,
+                        _findSadhana('aarti')!,
+                      ),
+
+                    const SizedBox(height: 12),
+
                     Text(
                       DateFormat('EEEE, d MMMM yyyy').format(day),
                       textAlign: TextAlign.center,

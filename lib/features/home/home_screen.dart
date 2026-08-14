@@ -1,6 +1,9 @@
 import 'package:bhaktichart/core/utils/date_utils.dart';
 import 'package:bhaktichart/features/goals/goals_screen.dart';
 import 'package:bhaktichart/features/insights/monthly_insights_screen.dart';
+import 'package:bhaktichart/features/reminders/reminders_screen.dart';
+import 'package:bhaktichart/features/statistics/statistics_screen.dart';
+import 'package:bhaktichart/services/sadhana_reminder_service.dart';
 import 'package:bhaktichart/models/aarti_type_model.dart';
 import 'package:bhaktichart/models/daily_aarti_model.dart';
 import 'package:bhaktichart/models/daily_sadhana_model.dart';
@@ -96,7 +99,23 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
 
+    _initializeReminderNotifications();
     _loadHomeData();
+  }
+
+  Future<void> _initializeReminderNotifications() async {
+    try {
+      await SadhanaReminderService.instance.initialize();
+    } catch (e) {
+      debugPrint('Error initializing reminders: $e');
+    }
+  }
+
+  Future<void> _openReminders() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const RemindersScreen()),
+    );
   }
 
   // ============================================================
@@ -3166,6 +3185,28 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
 
         actions: [
+          IconButton(
+            tooltip: 'Statistics',
+            icon: const Icon(Icons.bar_chart),
+            onPressed: () {
+              if (_userId == null) {
+                return;
+              }
+
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => StatisticsScreen(userId: _userId!),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: 'Sadhana Reminders',
+            onPressed: _openReminders,
+            icon: const Icon(Icons.notifications_active_outlined),
+          ),
+
           IconButton(
             tooltip: 'Monthly Insights',
             onPressed: () async {
