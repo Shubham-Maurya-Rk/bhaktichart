@@ -1,6 +1,8 @@
 import 'package:bhaktichart/core/utils/date_utils.dart';
 import 'package:bhaktichart/features/goals/goals_screen.dart';
 import 'package:bhaktichart/features/insights/monthly_insights_screen.dart';
+import 'package:bhaktichart/features/insights/day_insights_screen.dart';
+import 'package:bhaktichart/features/todo/daily_todo_screen.dart';
 import 'package:bhaktichart/models/aarti_type_model.dart';
 import 'package:bhaktichart/models/daily_aarti_model.dart';
 import 'package:bhaktichart/models/daily_sadhana_model.dart';
@@ -3373,55 +3375,152 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
 
         actions: [
-          IconButton(
-            tooltip: 'Statistics',
-            icon: const Icon(Icons.bar_chart),
-            onPressed: () {
-              if (_userId == null) {
-                return;
-              }
-
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => StatisticsScreen(userId: _userId!),
-                ),
-              );
-            },
-          ),
+          // ============================================================
+          // SADHANA REMINDERS - KEEP OUTSIDE MORE
+          // ============================================================
           IconButton(
             tooltip: 'Sadhana Reminders',
-            onPressed: _openReminders,
             icon: const Icon(Icons.notifications_active_outlined),
-          ),
-          IconButton(
-            tooltip: 'Monthly Insights',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const MonthlyInsightsScreen(),
-                ),
-              );
-            },
-            icon: const Icon(Icons.insights_outlined),
+            onPressed: _openReminders,
           ),
 
-          IconButton(
-            tooltip: 'Goals',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const GoalsScreen()),
-              );
+          // ============================================================
+          // MORE MENU
+          // ============================================================
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) async {
+              switch (value) {
+                // --------------------------------------------------------
+                // STATISTICS
+                // --------------------------------------------------------
+                case 'statistics':
+                  if (_userId == null) {
+                    return;
+                  }
 
-              if (!mounted) {
-                return;
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StatisticsScreen(userId: _userId!),
+                    ),
+                  );
+                  break;
+
+                // --------------------------------------------------------
+                // DAY INSIGHTS
+                // --------------------------------------------------------
+                case 'day_insights':
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const DayInsightsScreen(),
+                    ),
+                  );
+                  break;
+
+                // --------------------------------------------------------
+                // MONTHLY INSIGHTS
+                // --------------------------------------------------------
+                case 'monthly_insights':
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const MonthlyInsightsScreen(),
+                    ),
+                  );
+                  break;
+
+                // --------------------------------------------------------
+                // DAILY CHECKLIST
+                // --------------------------------------------------------
+                case 'todo':
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DailyTodoScreen()),
+                  );
+                  break;
+
+                // --------------------------------------------------------
+                // GOALS
+                // --------------------------------------------------------
+                case 'goals':
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const GoalsScreen()),
+                  );
+
+                  if (mounted) {
+                    await _reloadGoals();
+                  }
+                  break;
               }
-
-              await _reloadGoals();
             },
-            icon: const Icon(Icons.settings_outlined),
+
+            itemBuilder: (context) {
+              return const [
+                // ========================================================
+                // STATISTICS
+                // ========================================================
+                PopupMenuItem<String>(
+                  value: 'statistics',
+                  child: ListTile(
+                    leading: Icon(Icons.bar_chart),
+                    title: Text('Statistics'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+
+                // ========================================================
+                // DAY INSIGHTS
+                // ========================================================
+                PopupMenuItem<String>(
+                  value: 'day_insights',
+                  child: ListTile(
+                    leading: Icon(Icons.today_outlined),
+                    title: Text('Day Insights'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+
+                // ========================================================
+                // MONTHLY INSIGHTS
+                // ========================================================
+                PopupMenuItem<String>(
+                  value: 'monthly_insights',
+                  child: ListTile(
+                    leading: Icon(Icons.insights_outlined),
+                    title: Text('Monthly Insights'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+
+                // ========================================================
+                // DAILY CHECKLIST
+                // ========================================================
+                PopupMenuItem<String>(
+                  value: 'todo',
+                  child: ListTile(
+                    leading: Icon(Icons.checklist_rounded),
+                    title: Text('Daily Checklist'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+
+                // ========================================================
+                // GOALS
+                // ========================================================
+                PopupMenuItem<String>(
+                  value: 'goals',
+                  child: ListTile(
+                    leading: Icon(Icons.flag_outlined),
+                    title: Text('Goals'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ];
+            },
           ),
         ],
       ),
