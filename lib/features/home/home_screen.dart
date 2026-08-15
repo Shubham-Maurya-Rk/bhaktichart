@@ -322,9 +322,13 @@ class _HomeScreenState extends State<HomeScreen> {
           if (note != null) {
             final hasNote = note.note != null && note.note!.trim().isNotEmpty;
 
-            final isStarred = note.isStarred;
+            final hasDayType =
+                note.isStarred ||
+                note.isSankirtan ||
+                note.isEkadashi ||
+                note.isFestival;
 
-            if (hasNote || isStarred) {
+            if (hasNote || hasDayType) {
               dayNotes[dateKey] = note;
             }
           }
@@ -2755,9 +2759,18 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Stack(
         children: [
+          // ============================================================
+          // DATE - TOP LEFT
+          // ============================================================
+          // ============================================================
+          // TOP ROW — DATE + EKADASHI
+          // ============================================================
+          // ============================================================
+          // DATE - TOP LEFT
+          // ============================================================
           Positioned(
-            top: 5,
-            left: 6,
+            top: 4,
+            left: 5,
             child: Text(
               '${day.day}',
               style: TextStyle(
@@ -2770,44 +2783,94 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
+          // ============================================================
+          // EKADASHI - TOP RIGHT
+          // ============================================================
+          if (isEkadashi)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Icon(Icons.nights_stay, size: 13, color: Colors.white),
+            ),
+
+          // ============================================================
+          // CENTER VALUE
+          // ============================================================
           Positioned.fill(
-            child: Center(
-              child: hasValue
-                  ? Text(
-                      _formatValue(value),
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: valueTextColor,
-                      ),
-                    )
-                  : null,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10, bottom: 12),
+              child: Center(
+                child: hasValue
+                    ? Text(
+                        _formatValue(value),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: valueTextColor,
+                        ),
+                      )
+                    : null,
+              ),
             ),
           ),
 
-          if (isImportant || isSankirtan || isEkadashi || isFestival || hasNote)
+          // ============================================================
+          // BOTTOM INDICATORS
+          // ============================================================
+          if (isSankirtan || isFestival || isImportant || hasNote)
             Positioned(
-              bottom: 4,
-              right: 5,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (isSankirtan) const Icon(Icons.groups_2, size: 10),
-
-                  if (isEkadashi) const Icon(Icons.brightness_2, size: 10),
-
-                  if (isFestival) const Icon(Icons.celebration, size: 10),
-
-                  if (isImportant)
-                    Icon(Icons.star, size: 10, color: Colors.amber.shade700),
-
-                  if (hasNote)
-                    Icon(
-                      Icons.note_alt,
-                      size: 10,
-                      color: theme.colorScheme.secondary,
+              left: 3,
+              right: 3,
+              bottom: 2,
+              child: SizedBox(
+                height: 17,
+                child: Row(
+                  children: [
+                    // SANKIRTAN
+                    Expanded(
+                      child: isSankirtan
+                          ? _buildCalendarIndicator(
+                              icon: Icons.music_note_rounded,
+                              color: Colors.green.shade600,
+                              size: 11,
+                            )
+                          : const SizedBox(),
                     ),
-                ],
+
+                    // FESTIVAL
+                    Expanded(
+                      child: isFestival
+                          ? _buildCalendarIndicator(
+                              icon: Icons.celebration_rounded,
+                              color: Colors.orange.shade700,
+                              size: 11,
+                            )
+                          : const SizedBox(),
+                    ),
+
+                    // IMPORTANT
+                    Expanded(
+                      child: isImportant
+                          ? _buildCalendarIndicator(
+                              icon: Icons.star_rounded,
+                              color: Colors.amber.shade700,
+                              size: 11,
+                            )
+                          : const SizedBox(),
+                    ),
+
+                    // NOTE
+                    Expanded(
+                      child: hasNote
+                          ? _buildCalendarIndicator(
+                              icon: Icons.note_alt_rounded,
+                              color: Colors.blue.shade600,
+                              size: 11,
+                            )
+                          : const SizedBox(),
+                    ),
+                  ],
+                ),
               ),
             ),
         ],
@@ -2815,6 +2878,15 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildCalendarIndicator({
+    required IconData icon,
+    required Color color,
+    double size = 11,
+  }) {
+    return Center(
+      child: Icon(icon, size: size, color: color),
+    );
+  }
   // ============================================================
   // AARTI GOAL PROGRESS
   // ============================================================
