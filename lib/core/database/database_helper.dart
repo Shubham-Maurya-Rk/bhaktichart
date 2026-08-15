@@ -8,7 +8,7 @@ class DatabaseHelper {
 
   static const String _databaseName = 'bhaktichart.db';
 
-  static const int _databaseVersion = 2;
+  static const int _databaseVersion = 3;
 
   Database? _database;
 
@@ -43,6 +43,10 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    // --------------------------------------------------
+    // VERSION 2
+    // --------------------------------------------------
+
     if (oldVersion < 2) {
       await db.execute('''
       ALTER TABLE day_notes
@@ -59,6 +63,63 @@ class DatabaseHelper {
       ADD COLUMN is_festival INTEGER NOT NULL DEFAULT 0
     ''');
     }
+
+    // --------------------------------------------------
+    // VERSION 3 - DAILY ROUTINE
+    // --------------------------------------------------
+
+    if (oldVersion < 3) {
+      await db.execute('''
+      CREATE TABLE daily_routine (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL,
+
+        date TEXT NOT NULL,
+
+        wake_up_time TEXT,
+
+        sleep_time TEXT,
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE,
+
+        UNIQUE (
+          user_id,
+          date
+        )
+      )
+    ''');
+
+      await db.execute('''
+      CREATE TABLE daily_routine_goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL UNIQUE,
+
+        wake_up_hour INTEGER NOT NULL DEFAULT 6,
+
+        wake_up_minute INTEGER NOT NULL DEFAULT 0,
+
+        sleep_hour INTEGER NOT NULL DEFAULT 22,
+
+        sleep_minute INTEGER NOT NULL DEFAULT 0,
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE
+      )
+    ''');
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -72,6 +133,64 @@ class DatabaseHelper {
         name TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT
+      )
+    ''');
+    // --------------------------------------------------
+    // DAILY ROUTINE
+    // --------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE daily_routine (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL,
+
+        date TEXT NOT NULL,
+
+        wake_up_time TEXT,
+
+        sleep_time TEXT,
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE,
+
+        UNIQUE (
+          user_id,
+          date
+        )
+      )
+    ''');
+
+    // --------------------------------------------------
+    // DAILY ROUTINE GOALS
+    // --------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE daily_routine_goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL UNIQUE,
+
+        wake_up_hour INTEGER NOT NULL DEFAULT 6,
+
+        wake_up_minute INTEGER NOT NULL DEFAULT 0,
+
+        sleep_hour INTEGER NOT NULL DEFAULT 22,
+
+        sleep_minute INTEGER NOT NULL DEFAULT 0,
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE
       )
     ''');
 

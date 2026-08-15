@@ -1,5 +1,6 @@
 import 'package:bhaktichart/core/utils/date_utils.dart';
 import 'package:bhaktichart/features/goals/goals_screen.dart';
+import 'package:bhaktichart/features/daily_routine/daily_routine_screen.dart';
 import 'package:bhaktichart/features/insights/monthly_insights_screen.dart';
 import 'package:bhaktichart/features/insights/day_insights_screen.dart';
 import 'package:bhaktichart/features/todo/daily_todo_screen.dart';
@@ -3448,12 +3449,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
         actions: [
           // ============================================================
-          // SADHANA REMINDERS - KEEP OUTSIDE MORE
+          // DAILY ROUTINE - STANDALONE
           // ============================================================
           IconButton(
-            tooltip: 'Sadhana Reminders',
-            icon: const Icon(Icons.notifications_active_outlined),
-            onPressed: _openReminders,
+            tooltip: 'Daily Routine',
+            icon: const Icon(Icons.schedule_rounded),
+            onPressed: () async {
+              if (_userId == null) {
+                return;
+              }
+
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DailyRoutineScreen(userId: _userId!),
+                ),
+              );
+            },
+          ),
+
+          // ============================================================
+          // DAILY CHECKLIST - STANDALONE
+          // ============================================================
+          IconButton(
+            tooltip: 'Daily Checklist',
+            icon: const Icon(Icons.checklist_rounded),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DailyTodoScreen()),
+              );
+            },
           ),
 
           // ============================================================
@@ -3464,6 +3490,13 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.more_vert),
             onSelected: (value) async {
               switch (value) {
+                // --------------------------------------------------------
+                // SADHANA REMINDERS
+                // --------------------------------------------------------
+                case 'reminders':
+                  _openReminders();
+                  break;
+
                 // --------------------------------------------------------
                 // STATISTICS
                 // --------------------------------------------------------
@@ -3505,16 +3538,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   break;
 
                 // --------------------------------------------------------
-                // DAILY CHECKLIST
-                // --------------------------------------------------------
-                case 'todo':
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DailyTodoScreen()),
-                  );
-                  break;
-
-                // --------------------------------------------------------
                 // GOALS
                 // --------------------------------------------------------
                 case 'goals':
@@ -3532,6 +3555,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
             itemBuilder: (context) {
               return const [
+                // ========================================================
+                // SADHANA REMINDERS
+                // ========================================================
+                PopupMenuItem<String>(
+                  value: 'reminders',
+                  child: ListTile(
+                    leading: Icon(Icons.notifications_active_outlined),
+                    title: Text('Sadhana Reminders'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+
                 // ========================================================
                 // STATISTICS
                 // ========================================================
@@ -3564,18 +3599,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: ListTile(
                     leading: Icon(Icons.insights_outlined),
                     title: Text('Monthly Insights'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-
-                // ========================================================
-                // DAILY CHECKLIST
-                // ========================================================
-                PopupMenuItem<String>(
-                  value: 'todo',
-                  child: ListTile(
-                    leading: Icon(Icons.checklist_rounded),
-                    title: Text('Daily Checklist'),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
