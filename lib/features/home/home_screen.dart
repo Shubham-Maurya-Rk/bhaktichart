@@ -1251,59 +1251,58 @@ class _HomeScreenState extends State<HomeScreen> {
 
         const SizedBox(height: 8),
 
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(type.icon ?? '🙏', style: const TextStyle(fontSize: 30)),
+        // Row(
+        //   mainAxisAlignment: MainAxisAlignment.center,
+        //   children: [
+        //     Text(type.icon ?? '🙏', style: const TextStyle(fontSize: 30)),
 
-            const SizedBox(width: 8),
+        //     const SizedBox(width: 8),
 
-            Text(
-              type.name,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
+        //     Text(
+        //       type.name,
+        //       style: theme.textTheme.headlineSmall?.copyWith(
+        //         fontWeight: FontWeight.bold,
+        //       ),
+        //     ),
+        //   ],
+        // ),
 
-        const SizedBox(height: 20),
-
+        // const SizedBox(height: 20),
         Card(
           elevation: 0,
           color: theme.colorScheme.surfaceContainerHighest,
+          margin: EdgeInsets.zero,
           child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Column(
               children: [
-                Text(
-                  'Today',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-
-                const SizedBox(height: 6),
-
-                Text(
-                  _formatValue(value),
-                  style: theme.textTheme.displaySmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: completed ? theme.colorScheme.primary : null,
-                  ),
-                ),
-
-                if (actualUnit != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    actualUnit,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                // Today's value
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      _formatValue(value),
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: completed ? theme.colorScheme.primary : null,
+                      ),
                     ),
-                  ),
-                ],
 
-                const SizedBox(height: 16),
+                    if (actualUnit != null) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        actualUnit,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+
+                const SizedBox(height: 8),
 
                 if (!hasGoal)
                   Row(
@@ -1311,90 +1310,54 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Icon(
                         Icons.flag_outlined,
-                        size: 20,
+                        size: 16,
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
-
-                      const SizedBox(width: 8),
-
+                      const SizedBox(width: 5),
                       Text(
                         'No daily goal set',
-                        style: theme.textTheme.bodyMedium,
+                        style: theme.textTheme.bodySmall,
                       ),
                     ],
                   )
                 else if (isReading && !unitMatches)
-                  Column(
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
                         Icons.compare_arrows_outlined,
+                        size: 16,
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
-
-                      const SizedBox(height: 6),
-
-                      Text(
-                        'Goal not applicable for this unit',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-
-                      const SizedBox(height: 4),
-
-                      Text(
-                        'Today: ${actualUnit ?? 'unknown'} • '
-                        'Goal: ${goal.unit ?? 'unknown'}',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          'Goal: ${goal.unit ?? 'unknown'} • '
+                          'Today: ${actualUnit ?? 'unknown'}',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
                     ],
                   )
                 else ...[
+                  // Goal + percentage
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Goal'),
-
                       Text(
-                        '${_formatValue(goal!.targetValue)} '
+                        'Goal: ${_formatValue(goal!.targetValue)} '
                         '${goal.unit ?? ''}',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: LinearProgressIndicator(
-                      value: progress!.clamp(0.0, 1.0),
-                      minHeight: 10,
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '${_formatValue(value)} / '
-                        '${_formatValue(goal.targetValue)}',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
 
                       Text(
-                        '${(progress * 100).clamp(0, 100).toStringAsFixed(0)}%',
-                        style: theme.textTheme.bodyMedium?.copyWith(
+                        '${(progress! * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                        style: theme.textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: completed ? theme.colorScheme.primary : null,
                         ),
@@ -1402,23 +1365,45 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
 
-                  if (completed) ...[
-                    const SizedBox(height: 10),
+                  const SizedBox(height: 6),
 
+                  // Progress bar
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: LinearProgressIndicator(
+                      value: progress!.clamp(0.0, 1.0),
+                      minHeight: 7,
+                    ),
+                  ),
+
+                  const SizedBox(height: 5),
+
+                  // Progress numbers
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${_formatValue(value)} / '
+                      '${_formatValue(goal.targetValue)} ${goal.unit ?? ''}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+
+                  if (completed) ...[
+                    const SizedBox(height: 5),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
                           Icons.check_circle,
-                          size: 20,
+                          size: 16,
                           color: theme.colorScheme.primary,
                         ),
-
-                        const SizedBox(width: 6),
-
+                        const SizedBox(width: 5),
                         Text(
-                          'Daily goal completed 🎉',
-                          style: TextStyle(
+                          'Goal completed 🎉',
+                          style: theme.textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: theme.colorScheme.primary,
                           ),
@@ -1435,6 +1420,121 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildDayTypeSelector({
+    required BuildContext context,
+    required bool isStarred,
+    required bool isSankirtan,
+    required bool isEkadashi,
+    required bool isFestival,
+    required ValueChanged<bool> onStarredChanged,
+    required ValueChanged<bool> onSankirtanChanged,
+    required ValueChanged<bool> onEkadashiChanged,
+    required ValueChanged<bool> onFestivalChanged,
+  }) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _buildDayTypeReaction(
+            context: context,
+            icon: Icons.groups_2_outlined,
+            selectedIcon: Icons.groups_2,
+            label: 'Sankirtan',
+            selected: isSankirtan,
+            onSelected: onSankirtanChanged,
+          ),
+
+          const SizedBox(width: 8),
+
+          _buildDayTypeReaction(
+            context: context,
+            icon: Icons.brightness_2_outlined,
+            selectedIcon: Icons.brightness_2,
+            label: 'Ekadashi',
+            selected: isEkadashi,
+            onSelected: onEkadashiChanged,
+          ),
+
+          const SizedBox(width: 8),
+
+          _buildDayTypeReaction(
+            context: context,
+            icon: Icons.celebration_outlined,
+            selectedIcon: Icons.celebration,
+            label: 'Festival',
+            selected: isFestival,
+            onSelected: onFestivalChanged,
+          ),
+
+          const SizedBox(width: 8),
+
+          _buildDayTypeReaction(
+            context: context,
+            icon: Icons.star_border,
+            selectedIcon: Icons.star,
+            label: 'Important',
+            selected: isStarred,
+            onSelected: onStarredChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDayTypeReaction({
+    required BuildContext context,
+    required IconData icon,
+    required IconData selectedIcon,
+    required String label,
+    required bool selected,
+    required ValueChanged<bool> onSelected,
+  }) {
+    final theme = Theme.of(context);
+
+    return GestureDetector(
+      onTap: () => onSelected(!selected),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected
+              ? theme.colorScheme.primaryContainer
+              : theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outlineVariant,
+            width: selected ? 1.3 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              selected ? selectedIcon : icon,
+              size: 18,
+              color: selected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+
+            const SizedBox(width: 5),
+
+            Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
   // ============================================================
   // VALUE SADHANA SHEET
   // ============================================================
@@ -1476,6 +1576,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     bool isStarred = existingNote?.isStarred ?? false;
+    bool isSankirtan = existingNote?.isSankirtan ?? false;
+    bool isEkadashi = existingNote?.isEkadashi ?? false;
+    bool isFestival = existingNote?.isFestival ?? false;
 
     if (!mounted) {
       controller.dispose();
@@ -1494,7 +1597,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
             final isReading = type.name.toLowerCase() == 'reading';
 
-            final unit = isReading ? selectedReadingUnit : _getDefaultUnit();
+            final unit = isReading
+                ? selectedReadingUnit
+                : _getDefaultUnitForType(type);
 
             final value = existing?.value ?? 0.0;
 
@@ -1603,26 +1708,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 16),
 
-                    Card(
-                      child: SwitchListTile(
-                        value: isStarred,
-                        onChanged: (value) {
-                          setSheetState(() {
-                            isStarred = value;
-                          });
-                        },
-                        secondary: Icon(
-                          isStarred ? Icons.star : Icons.star_border,
-                          color: isStarred ? Colors.amber : null,
-                        ),
-                        title: const Text(
-                          'Important day',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: const Text(
-                          'Star this day so you remember it',
-                        ),
-                      ),
+                    _buildDayTypeSelector(
+                      context: context,
+                      isStarred: isStarred,
+                      isSankirtan: isSankirtan,
+                      isEkadashi: isEkadashi,
+                      isFestival: isFestival,
+                      onStarredChanged: (value) {
+                        setSheetState(() {
+                          isStarred = value;
+                        });
+                      },
+                      onSankirtanChanged: (value) {
+                        setSheetState(() {
+                          isSankirtan = value;
+                        });
+                      },
+                      onEkadashiChanged: (value) {
+                        setSheetState(() {
+                          isEkadashi = value;
+                        });
+                      },
+                      onFestivalChanged: (value) {
+                        setSheetState(() {
+                          isFestival = value;
+                        });
+                      },
                     ),
 
                     const SizedBox(height: 8),
@@ -1675,10 +1786,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           final note = DayNoteModel(
                             userId: _userId!,
                             date: _dateKey(day),
+
                             isStarred: isStarred,
+                            isSankirtan: isSankirtan,
+                            isEkadashi: isEkadashi,
+                            isFestival: isFestival,
+
                             note: noteController.text.trim().isEmpty
                                 ? null
                                 : noteController.text.trim(),
+
                             createdAt: now,
                             updatedAt: now,
                           );
@@ -1733,7 +1850,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final existingNote = await _repository.getDayNote(_userId!, _dateKey(day));
 
+    // ============================================================
+    // DAY TYPE STATES
+    // ============================================================
+
     bool isStarred = existingNote?.isStarred ?? false;
+    bool isSankirtan = existingNote?.isSankirtan ?? false;
+    bool isEkadashi = existingNote?.isEkadashi ?? false;
+    bool isFestival = existingNote?.isFestival ?? false;
 
     final noteController = TextEditingController(
       text: existingNote?.note ?? '',
@@ -1751,10 +1875,17 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
+            final theme = Theme.of(context);
+
             final aartiType = _findSadhana('aarti');
+
             final goal = aartiType?.id == null ? null : _goals[aartiType!.id!];
 
             final count = selectedIds.length;
+
+            final goalProgress = goal != null && goal.targetValue > 0
+                ? (count / goal.targetValue).clamp(0.0, 1.0)
+                : null;
 
             return SafeArea(
               child: SingleChildScrollView(
@@ -1767,92 +1898,92 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (_findSadhana('aarti') != null)
-                      _buildBottomSheetSadhanaSwitcher(
-                        context,
-                        day,
-                        _findSadhana('aarti')!,
-                      ),
+                    // ========================================================
+                    // SADHANA SWITCHER
+                    // ========================================================
+                    if (aartiType != null)
+                      _buildBottomSheetSadhanaSwitcher(context, day, aartiType),
 
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
 
+                    // ========================================================
+                    // DATE
+                    // ========================================================
                     Text(
                       DateFormat('EEEE, d MMMM yyyy').format(day),
                       textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
 
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
 
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('🪔', style: TextStyle(fontSize: 30)),
-                        SizedBox(width: 8),
-                        Text(
-                          'Aarti Attendance',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 20),
-
+                    // ========================================================
+                    // AARTI SUMMARY CARD
+                    // ========================================================
                     Card(
                       elevation: 0,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
+                      color: theme.colorScheme.surfaceContainerHighest,
                       child: Padding(
-                        padding: const EdgeInsets.all(18),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                         child: Column(
                           children: [
-                            Text(
-                              '$count',
-                              style: Theme.of(context).textTheme.displaySmall
-                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.baseline,
+                              textBaseline: TextBaseline.alphabetic,
+                              children: [
+                                Text(
+                                  '$count',
+                                  style: theme.textTheme.headlineMedium
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Aartis',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
                             ),
 
-                            const Text('Aartis attended'),
-
-                            if (goal != null && goal.targetValue > 0) ...[
-                              const SizedBox(height: 16),
+                            if (goalProgress != null) ...[
+                              const SizedBox(height: 8),
 
                               Row(
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Text('Goal'),
                                   Text(
-                                    '${_formatValue(goal.targetValue)} '
+                                    'Goal: ${_formatValue(goal!.targetValue)} '
                                     '${goal.unit ?? 'aartis'}',
-                                    style: const TextStyle(
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${((goalProgress) * 100).toStringAsFixed(0)}%',
+                                    style: theme.textTheme.bodySmall?.copyWith(
                                       fontWeight: FontWeight.bold,
+                                      color: theme.colorScheme.primary,
                                     ),
                                   ),
                                 ],
                               ),
 
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 5),
 
-                              LinearProgressIndicator(
-                                value: (count / goal.targetValue).clamp(
-                                  0.0,
-                                  1.0,
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: LinearProgressIndicator(
+                                  value: goalProgress,
+                                  minHeight: 7,
                                 ),
-                                minHeight: 10,
-                              ),
-
-                              const SizedBox(height: 8),
-
-                              Text(
-                                '${((count / goal.targetValue) * 100).clamp(0, 100).toStringAsFixed(0)}% completed',
-                                textAlign: TextAlign.center,
                               ),
                             ],
                           ],
@@ -1860,8 +1991,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
 
+                    // ========================================================
+                    // AARTI LIST
+                    // ========================================================
                     if (aartiTypes.isEmpty)
                       _buildNoAartiMessage(context)
                     else
@@ -1875,8 +2009,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         final selected = selectedIds.contains(id);
 
                         return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
+                          margin: const EdgeInsets.only(bottom: 6),
                           child: CheckboxListTile(
+                            dense: true,
+                            visualDensity: VisualDensity.compact,
                             value: selected,
                             onChanged: (value) {
                               setSheetState(() {
@@ -1895,14 +2031,17 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             secondary: const Text(
                               '🪔',
-                              style: TextStyle(fontSize: 24),
+                              style: TextStyle(fontSize: 22),
                             ),
                           ),
                         );
                       }),
 
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
 
+                    // ========================================================
+                    // ADD AARTI
+                    // ========================================================
                     OutlinedButton.icon(
                       onPressed: () async {
                         final added = await _showAddAartiDialog();
@@ -1921,33 +2060,47 @@ class _HomeScreenState extends State<HomeScreen> {
                       label: const Text('ADD MY AARTI'),
                     ),
 
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
 
-                    Card(
-                      child: SwitchListTile(
-                        value: isStarred,
-                        onChanged: (value) {
-                          setSheetState(() {
-                            isStarred = value;
-                          });
-                        },
-                        secondary: Icon(
-                          isStarred ? Icons.star : Icons.star_border,
-                          color: isStarred ? Colors.amber : null,
-                        ),
-                        title: const Text(
-                          'Important day',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: const Text('Star this day'),
-                      ),
+                    // ========================================================
+                    // DAY TYPE SELECTOR
+                    // ========================================================
+                    _buildDayTypeSelector(
+                      context: context,
+                      isStarred: isStarred,
+                      isSankirtan: isSankirtan,
+                      isEkadashi: isEkadashi,
+                      isFestival: isFestival,
+                      onStarredChanged: (value) {
+                        setSheetState(() {
+                          isStarred = value;
+                        });
+                      },
+                      onSankirtanChanged: (value) {
+                        setSheetState(() {
+                          isSankirtan = value;
+                        });
+                      },
+                      onEkadashiChanged: (value) {
+                        setSheetState(() {
+                          isEkadashi = value;
+                        });
+                      },
+                      onFestivalChanged: (value) {
+                        setSheetState(() {
+                          isFestival = value;
+                        });
+                      },
                     ),
 
                     const SizedBox(height: 8),
 
+                    // ========================================================
+                    // NOTE
+                    // ========================================================
                     TextField(
                       controller: noteController,
-                      maxLines: 3,
+                      maxLines: 2,
                       decoration: InputDecoration(
                         labelText: 'Note about this day',
                         hintText: 'Write something to remember...',
@@ -1958,13 +2111,20 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
 
+                    // ========================================================
+                    // SAVE BUTTON
+                    // ========================================================
                     SizedBox(
-                      height: 52,
+                      height: 50,
                       child: FilledButton.icon(
                         onPressed: () async {
                           final now = DateTime.now().toIso8601String();
+
+                          // ------------------------------------------------
+                          // SAVE AARTI ATTENDANCE
+                          // ------------------------------------------------
 
                           for (final aarti in aartiTypes) {
                             final id = aarti.id;
@@ -1991,18 +2151,38 @@ class _HomeScreenState extends State<HomeScreen> {
                             }
                           }
 
+                          // ------------------------------------------------
+                          // SAVE DAY NOTE + DAY TYPES
+                          // ------------------------------------------------
+
+                          final noteText = noteController.text.trim();
+
                           final note = DayNoteModel(
                             userId: _userId!,
                             date: _dateKey(day),
+
+                            // Important Day
                             isStarred: isStarred,
-                            note: noteController.text.trim().isEmpty
-                                ? null
-                                : noteController.text.trim(),
-                            createdAt: now,
+
+                            // Day Types
+                            isSankirtan: isSankirtan,
+                            isEkadashi: isEkadashi,
+                            isFestival: isFestival,
+
+                            // Note
+                            note: noteText.isEmpty ? null : noteText,
+
+                            createdAt: existingNote?.createdAt ?? now,
                             updatedAt: now,
                           );
 
                           await _repository.saveDayNote(note);
+
+                          // ------------------------------------------------
+                          // REFRESH CALENDAR DATA
+                          // ------------------------------------------------
+
+                          await _loadMonthlyData();
 
                           if (!context.mounted) {
                             return;
@@ -2014,7 +2194,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         label: const Text(
                           'SAVE',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 15,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -2029,9 +2209,10 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
 
+    noteController.dispose();
+
     await _loadMonthlyData();
   }
-
   // ============================================================
   // NO AARTI MESSAGE
   // ============================================================
@@ -2550,9 +2731,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ? theme.colorScheme.onPrimary
         : theme.colorScheme.onSurface;
 
-    final isImportant = _isImportantDay(day);
+    final dayNote = _getDayNote(day);
 
-    final hasNote = _hasDayNote(day);
+    final isImportant = dayNote?.isStarred ?? false;
+    final isSankirtan = dayNote?.isSankirtan ?? false;
+    final isEkadashi = dayNote?.isEkadashi ?? false;
+    final isFestival = dayNote?.isFestival ?? false;
+
+    final hasNote = dayNote?.note != null && dayNote!.note!.trim().isNotEmpty;
 
     return Container(
       margin: const EdgeInsets.all(2),
@@ -2597,17 +2783,21 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          if (isImportant || hasNote)
+          if (isImportant || isSankirtan || isEkadashi || isFestival || hasNote)
             Positioned(
               bottom: 4,
               right: 5,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (isSankirtan) const Icon(Icons.groups_2, size: 10),
+
+                  if (isEkadashi) const Icon(Icons.brightness_2, size: 10),
+
+                  if (isFestival) const Icon(Icons.celebration, size: 10),
+
                   if (isImportant)
                     Icon(Icons.star, size: 10, color: Colors.amber.shade700),
-
-                  if (isImportant && hasNote) const SizedBox(width: 2),
 
                   if (hasNote)
                     Icon(

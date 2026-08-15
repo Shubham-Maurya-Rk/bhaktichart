@@ -8,7 +8,7 @@ class DatabaseHelper {
 
   static const String _databaseName = 'bhaktichart.db';
 
-  static const int _databaseVersion = 1;
+  static const int _databaseVersion = 2;
 
   Database? _database;
 
@@ -37,7 +37,28 @@ class DatabaseHelper {
       },
 
       onCreate: _onCreate,
+
+      onUpgrade: _onUpgrade,
     );
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('''
+      ALTER TABLE day_notes
+      ADD COLUMN is_sankirtan INTEGER NOT NULL DEFAULT 0
+    ''');
+
+      await db.execute('''
+      ALTER TABLE day_notes
+      ADD COLUMN is_ekadashi INTEGER NOT NULL DEFAULT 0
+    ''');
+
+      await db.execute('''
+      ALTER TABLE day_notes
+      ADD COLUMN is_festival INTEGER NOT NULL DEFAULT 0
+    ''');
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -203,6 +224,12 @@ class DatabaseHelper {
         date TEXT NOT NULL,
 
         is_starred INTEGER NOT NULL DEFAULT 0,
+
+        is_sankirtan INTEGER NOT NULL DEFAULT 0,
+
+        is_ekadashi INTEGER NOT NULL DEFAULT 0,
+
+        is_festival INTEGER NOT NULL DEFAULT 0,
 
         note TEXT,
 

@@ -81,6 +81,18 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
   }
 
   // ============================================================
+  // NORMALIZE DATE
+  // ============================================================
+
+  String _normalizeDate(String date) {
+    if (date.length >= 10) {
+      return date.substring(0, 10);
+    }
+
+    return date;
+  }
+
+  // ============================================================
   // MONTH START
   // ============================================================
 
@@ -202,7 +214,7 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
       );
 
       // ----------------------------------------------------------
-      // LOAD NOTES
+      // LOAD NOTES / DAY TYPES
       // ----------------------------------------------------------
 
       final monthNotes = await _repository.getDayNotesForMonth(
@@ -253,6 +265,9 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
           'NOTE: '
           'date=${note.date}, '
           'starred=${note.isStarred}, '
+          'sankirtan=${note.isSankirtan}, '
+          'ekadashi=${note.isEkadashi}, '
+          'festival=${note.isFestival}, '
           'note=${note.note}',
         );
       }
@@ -278,6 +293,7 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
       debugPrint('$stackTrace');
     }
   }
+
   // ============================================================
   // SELECT SADHANA
   // ============================================================
@@ -347,7 +363,6 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
   // ============================================================
 
   double get _totalValue {
-    // Aarti is stored in daily_aarti, not daily_sadhana.
     if (_selectedSadhana?.name.toLowerCase() == 'aarti') {
       return _aartiRecords.length.toDouble();
     }
@@ -361,12 +376,15 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
 
   int get _daysPracticed {
     if (_selectedSadhana?.name.toLowerCase() == 'aarti') {
-      return _aartiRecords.map((record) => record.date).toSet().length;
+      return _aartiRecords
+          .map((record) => _normalizeDate(record.date))
+          .toSet()
+          .length;
     }
 
     return _selectedRecords
         .where((record) => record.value > 0)
-        .map((record) => record.date)
+        .map((record) => _normalizeDate(record.date))
         .toSet()
         .length;
   }
@@ -377,6 +395,26 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
 
   int get _daysInMonth {
     return DateTime(_focusedMonth.year, _focusedMonth.month + 1, 0).day;
+  }
+
+  // ============================================================
+  // DAY TYPE COUNTS
+  // ============================================================
+
+  int get _sankirtanDays {
+    return _notesByDate.values.where((note) => note.isSankirtan).length;
+  }
+
+  int get _ekadashiDays {
+    return _notesByDate.values.where((note) => note.isEkadashi).length;
+  }
+
+  int get _festivalDays {
+    return _notesByDate.values.where((note) => note.isFestival).length;
+  }
+
+  int get _importantDaysCount {
+    return _notesByDate.values.where((note) => note.isStarred).length;
   }
 
   // ============================================================
@@ -396,7 +434,9 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
       final countByDate = <String, int>{};
 
       for (final record in _aartiRecords) {
-        countByDate[record.date] = (countByDate[record.date] ?? 0) + 1;
+        final date = _normalizeDate(record.date);
+
+        countByDate[date] = (countByDate[date] ?? 0) + 1;
       }
 
       return countByDate.values
@@ -408,24 +448,31 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
     // NORMAL SADHANA
     // ------------------------------------------------------------
 
-    return _selectedRecords.where((record) {
+    final completedDates = <String>{};
+
+    for (final record in _selectedRecords) {
       if (record.value <= 0) {
-        return false;
+        continue;
       }
 
       if (_selectedSadhana?.name.toLowerCase() == 'reading') {
         if (record.unit == null || _goal!.unit == null) {
-          return false;
+          continue;
         }
 
         if (record.unit != _goal!.unit) {
-          return false;
+          continue;
         }
       }
 
-      return record.value >= _goal!.targetValue;
-    }).length;
+      if (record.value >= _goal!.targetValue) {
+        completedDates.add(_normalizeDate(record.date));
+      }
+    }
+
+    return completedDates.length;
   }
+
   // ============================================================
   // GOAL COMPLETION %
   // ============================================================
@@ -452,11 +499,12 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
         return null;
       }
 
-      // Group Aarti attendance by date.
       final countByDate = <String, int>{};
 
       for (final record in _aartiRecords) {
-        countByDate[record.date] = (countByDate[record.date] ?? 0) + 1;
+        final date = _normalizeDate(record.date);
+
+        countByDate[date] = (countByDate[date] ?? 0) + 1;
       }
 
       String? bestDate;
@@ -505,6 +553,7 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
 
     return best;
   }
+
   // ============================================================
   // AARTI DAYS
   // ============================================================
@@ -561,13 +610,6 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
   // ============================================================
   // CURRENT STREAK
   // ============================================================
-  String _normalizeDate(String date) {
-    if (date.length >= 10) {
-      return date.substring(0, 10);
-    }
-
-    return date;
-  }
 
   int get _currentStreak {
     // ------------------------------------------------------------
@@ -579,7 +621,9 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
         return 0;
       }
 
-      final attendedDates = _aartiRecords.map((record) => record.date).toSet();
+      final attendedDates = _aartiRecords
+          .map((record) => _normalizeDate(record.date))
+          .toSet();
 
       DateTime date;
 
@@ -619,9 +663,13 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
       return 0;
     }
 
-    final valueByDate = <String, double>{
-      for (final record in _selectedRecords) record.date: record.value,
-    };
+    final valueByDate = <String, double>{};
+
+    for (final record in _selectedRecords) {
+      final date = _normalizeDate(record.date);
+
+      valueByDate[date] = record.value;
+    }
 
     DateTime date;
 
@@ -654,6 +702,7 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
 
     return streak;
   }
+
   // ============================================================
   // FORMAT VALUE
   // ============================================================
@@ -745,6 +794,7 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
 
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
+
                     Text(
                       subtitle,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1090,6 +1140,169 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
   }
 
   // ============================================================
+  // DAY TYPE SUMMARY
+  // ============================================================
+
+  Widget _buildDayTypeSummary(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final hasAnyDayType =
+        _sankirtanDays > 0 ||
+        _ekadashiDays > 0 ||
+        _festivalDays > 0 ||
+        _importantDaysCount > 0;
+
+    if (!hasAnyDayType) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            children: [
+              Icon(
+                Icons.event_note_outlined,
+                size: 38,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+
+              const SizedBox(height: 8),
+
+              const Text(
+                'No marked days',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+
+              const SizedBox(height: 4),
+
+              Text(
+                'Sankirtan, Ekadashi, festivals and important days will appear here.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.event_note_outlined,
+                  color: theme.colorScheme.primary,
+                ),
+
+                const SizedBox(width: 8),
+
+                const Text(
+                  'Day Types',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (_sankirtanDays > 0)
+                  _buildDayTypeInsightChip(
+                    context,
+                    icon: Icons.groups_2,
+                    label: 'Sankirtan',
+                    count: _sankirtanDays,
+                  ),
+
+                if (_ekadashiDays > 0)
+                  _buildDayTypeInsightChip(
+                    context,
+                    icon: Icons.brightness_2,
+                    label: 'Ekadashi',
+                    count: _ekadashiDays,
+                  ),
+
+                if (_festivalDays > 0)
+                  _buildDayTypeInsightChip(
+                    context,
+                    icon: Icons.celebration,
+                    label: 'Festival',
+                    count: _festivalDays,
+                  ),
+
+                if (_importantDaysCount > 0)
+                  _buildDayTypeInsightChip(
+                    context,
+                    icon: Icons.star,
+                    label: 'Important',
+                    count: _importantDaysCount,
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // DAY TYPE CHIP
+  // ============================================================
+
+  Widget _buildDayTypeInsightChip(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required int count,
+  }) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: theme.colorScheme.primary),
+
+          const SizedBox(width: 6),
+
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+
+          const SizedBox(width: 5),
+
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
   // IMPORTANT DAYS
   // ============================================================
 
@@ -1379,6 +1592,13 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
                 const SizedBox(height: 12),
 
                 // =================================================
+                // DAY TYPES
+                // =================================================
+                _buildDayTypeSummary(context),
+
+                const SizedBox(height: 12),
+
+                // =================================================
                 // AARTI
                 // =================================================
                 _buildAartiSummary(context),
@@ -1395,7 +1615,7 @@ class _MonthlyInsightsScreenState extends State<MonthlyInsightsScreen> {
                         context,
                         icon: Icons.star,
                         title: 'Important',
-                        value: '${_importantDays.length}',
+                        value: '$_importantDaysCount',
                         subtitle: 'starred days',
                       ),
                     ),

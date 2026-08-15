@@ -440,23 +440,26 @@ class SadhanaRepository {
       limit: 1,
     );
 
+    final data = {
+      'is_starred': note.isStarred ? 1 : 0,
+      'is_sankirtan': note.isSankirtan ? 1 : 0,
+      'is_ekadashi': note.isEkadashi ? 1 : 0,
+      'is_festival': note.isFestival ? 1 : 0,
+      'note': note.note,
+      'updated_at': note.updatedAt,
+    };
+
     if (existing.isEmpty) {
       await db.insert('day_notes', {
         'user_id': note.userId,
         'date': note.date,
-        'is_starred': note.isStarred ? 1 : 0,
-        'note': note.note,
+        ...data,
         'created_at': note.createdAt,
-        'updated_at': note.updatedAt,
       });
     } else {
       await db.update(
         'day_notes',
-        {
-          'is_starred': note.isStarred ? 1 : 0,
-          'note': note.note,
-          'updated_at': note.updatedAt,
-        },
+        data,
         where: 'id = ?',
         whereArgs: [existing.first['id']],
       );
