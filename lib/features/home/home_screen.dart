@@ -1,9 +1,6 @@
 import 'package:bhaktichart/core/utils/date_utils.dart';
 import 'package:bhaktichart/features/goals/goals_screen.dart';
 import 'package:bhaktichart/features/insights/monthly_insights_screen.dart';
-import 'package:bhaktichart/features/reminders/reminders_screen.dart';
-import 'package:bhaktichart/features/statistics/statistics_screen.dart';
-import 'package:bhaktichart/services/sadhana_reminder_service.dart';
 import 'package:bhaktichart/models/aarti_type_model.dart';
 import 'package:bhaktichart/models/daily_aarti_model.dart';
 import 'package:bhaktichart/models/daily_sadhana_model.dart';
@@ -14,6 +11,9 @@ import 'package:bhaktichart/repositories/sadhana_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:bhaktichart/features/reminders/reminders_screen.dart';
+import 'package:bhaktichart/features/statistics/statistics_screen.dart';
+import 'package:bhaktichart/services/sadhana_reminder_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -98,11 +98,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-
     _initializeReminderNotifications();
     _loadHomeData();
   }
 
+  // ============================================================
+  // LOAD HOME DATA
+  // ============================================================
   Future<void> _initializeReminderNotifications() async {
     try {
       await SadhanaReminderService.instance.initialize();
@@ -117,10 +119,6 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const RemindersScreen()),
     );
   }
-
-  // ============================================================
-  // LOAD HOME DATA
-  // ============================================================
 
   Future<void> _loadHomeData() async {
     try {
@@ -2475,7 +2473,7 @@ class _HomeScreenState extends State<HomeScreen> {
           },
 
           calendarFormat: CalendarFormat.month,
-
+          availableGestures: AvailableGestures.horizontalSwipe,
           rowHeight: 64,
 
           headerStyle: const HeaderStyle(
@@ -3206,7 +3204,6 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _openReminders,
             icon: const Icon(Icons.notifications_active_outlined),
           ),
-
           IconButton(
             tooltip: 'Monthly Insights',
             onPressed: () async {
