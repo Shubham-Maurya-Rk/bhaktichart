@@ -8,7 +8,7 @@ class DatabaseHelper {
 
   static const String _databaseName = 'bhaktichart.db';
 
-  static const int _databaseVersion = 1;
+  static const int _databaseVersion = 3;
 
   Database? _database;
 
@@ -46,7 +46,7 @@ class DatabaseHelper {
     return await openDatabase(
       path,
 
-  static const int _databaseVersion = 1;
+      version: _databaseVersion,
 
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
@@ -84,6 +84,89 @@ class DatabaseHelper {
     return _database!;
   }
 
+  // ============================================================
+  // UPGRADE
+  // ============================================================
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    // --------------------------------------------------
+    // VERSION 2
+    // --------------------------------------------------
+
+    if (oldVersion < 2) {
+      await db.execute('''
+        ALTER TABLE day_notes
+        ADD COLUMN is_sankirtan INTEGER NOT NULL DEFAULT 0
+      ''');
+
+      await db.execute('''
+        ALTER TABLE day_notes
+        ADD COLUMN is_ekadashi INTEGER NOT NULL DEFAULT 0
+      ''');
+
+      await db.execute('''
+        ALTER TABLE day_notes
+        ADD COLUMN is_festival INTEGER NOT NULL DEFAULT 0
+      ''');
+    }
+
+    // --------------------------------------------------
+    // VERSION 3
+    // --------------------------------------------------
+
+    if (oldVersion < 3) {
+      await db.execute('''
+        CREATE TABLE daily_routine (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+          user_id INTEGER NOT NULL,
+
+          date TEXT NOT NULL,
+
+          wake_up_time TEXT,
+
+          sleep_time TEXT,
+
+          created_at TEXT NOT NULL,
+
+          updated_at TEXT,
+
+          FOREIGN KEY (user_id)
+            REFERENCES users(id)
+            ON DELETE CASCADE,
+
+          UNIQUE (
+            user_id,
+            date
+          )
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE daily_routine_goals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+          user_id INTEGER NOT NULL UNIQUE,
+
+          wake_up_hour INTEGER NOT NULL DEFAULT 6,
+
+          wake_up_minute INTEGER NOT NULL DEFAULT 0,
+
+          sleep_hour INTEGER NOT NULL DEFAULT 22,
+
+          sleep_minute INTEGER NOT NULL DEFAULT 0,
+
+          created_at TEXT NOT NULL,
+
+          updated_at TEXT,
+
+          FOREIGN KEY (user_id)
+            REFERENCES users(id)
+            ON DELETE CASCADE
+        )
+      ''');
+    }
+  }
 
   // ============================================================
   // CREATE
