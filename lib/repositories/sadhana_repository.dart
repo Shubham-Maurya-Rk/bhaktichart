@@ -382,6 +382,90 @@ class SadhanaRepository {
   }
 
   // =====================================================
+  // SAVE COMPLETE DAY SADHANA
+  // =====================================================
+
+  Future<void> saveCompleteDaySadhana({
+    required int userId,
+    required String date,
+    required List<DailySadhanaModel> records,
+  }) async {
+    final db = await _db;
+
+    await db.transaction((txn) async {
+      for (final record in records) {
+        final existing = await txn.query(
+          'daily_sadhana',
+          where: '''
+          user_id = ?
+          AND date = ?
+          AND sadhana_type_id = ?
+        ''',
+          whereArgs: [userId, date, record.sadhanaTypeId],
+          limit: 1,
+        );
+
+        final data = {
+          'user_id': userId,
+          'date': date,
+          'sadhana_type_id': record.sadhanaTypeId,
+          'value': record.value,
+          'unit': record.unit,
+          'created_at': record.createdAt,
+          'updated_at': record.updatedAt,
+        };
+
+        if (existing.isEmpty) {
+          await txn.insert('daily_sadhana', data);
+        } else {
+          await txn.update(
+            'daily_sadhana',
+            data,
+            where: 'id = ?',
+            whereArgs: [existing.first['id']],
+          );
+        }
+      }
+    });
+  }
+
+  // =====================================================
+  // SAVE COMPLETE DAY AARTI
+  // =====================================================
+
+  Future<void> saveCompleteDayAarti({
+    required int userId,
+    required String date,
+    required Set<int> selectedAartiTypeIds,
+  }) async {
+    final db = await _db;
+
+    await db.transaction((txn) async {
+      // Remove all existing attendance for this day.
+      await txn.delete(
+        'daily_aarti',
+        where: '''
+        user_id = ?
+        AND date = ?
+      ''',
+        whereArgs: [userId, date],
+      );
+
+      // Insert currently selected Aartis.
+      final now = DateTime.now().toIso8601String();
+
+      for (final aartiTypeId in selectedAartiTypeIds) {
+        await txn.insert('daily_aarti', {
+          'user_id': userId,
+          'aarti_type_id': aartiTypeId,
+          'date': date,
+          'created_at': now,
+        });
+      }
+    });
+  }
+
+  // =====================================================
   // DAY NOTES
   // =====================================================
 

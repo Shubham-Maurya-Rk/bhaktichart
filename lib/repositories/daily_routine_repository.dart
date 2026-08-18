@@ -27,6 +27,55 @@ class DailyRoutineRepository {
   }
 
   // ============================================================
+  // SAVE COMPLETE DAILY ROUTINE
+  // ============================================================
+
+  Future<void> saveCompleteRoutine({
+    required int userId,
+    required DateTime date,
+    DateTime? wakeUpTime,
+    DateTime? sleepTime,
+  }) async {
+    if (_isBeyondTomorrow(date)) {
+      throw Exception('You cannot add a routine for a future date.');
+    }
+
+    final existing = await getByDate(userId, date);
+
+    final now = DateTime.now();
+
+    if (existing == null) {
+      // Nothing entered at all.
+      if (wakeUpTime == null && sleepTime == null) {
+        return;
+      }
+
+      await save(
+        DailyRoutine(
+          userId: userId,
+          date: _dateOnly(date),
+          wakeUpTime: wakeUpTime,
+          sleepTime: sleepTime,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      return;
+    }
+
+    await save(
+      existing.copyWith(
+        wakeUpTime: wakeUpTime,
+        sleepTime: sleepTime,
+        updatedAt: now,
+        clearWakeUpTime: wakeUpTime == null,
+        clearSleepTime: sleepTime == null,
+      ),
+    );
+  }
+
+  // ============================================================
   // GET BY DATE
   // ============================================================
 

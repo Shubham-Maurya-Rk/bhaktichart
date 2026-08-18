@@ -3,14 +3,14 @@ import 'package:intl/intl.dart';
 
 import '../../core/utils/date_utils.dart';
 import '../../models/daily_aarti_model.dart';
+import '../../models/daily_routine.dart';
+import '../../models/daily_routine_goal.dart';
 import '../../models/daily_sadhana_model.dart';
 import '../../models/day_note_model.dart';
 import '../../models/goal_model.dart';
 import '../../models/sadhana_type_model.dart';
-import '../../repositories/sadhana_repository.dart';
-import '../../models/daily_routine.dart';
-import '../../models/daily_routine_goal.dart';
 import '../../repositories/daily_routine_repository.dart';
+import '../../repositories/sadhana_repository.dart';
 
 class DayInsightsScreen extends StatefulWidget {
   const DayInsightsScreen({super.key});
@@ -21,7 +21,7 @@ class DayInsightsScreen extends StatefulWidget {
 
 class _DayInsightsScreenState extends State<DayInsightsScreen> {
   // ============================================================
-  // REPOSITORY
+  // REPOSITORIES
   // ============================================================
 
   final SadhanaRepository _repository = SadhanaRepository();
@@ -35,7 +35,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
   String _name = '';
 
   // ============================================================
-  // DATE / PAGE
+  // DATE
   // ============================================================
 
   DateTime _selectedDate = DateTime.now();
@@ -69,6 +69,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
   // ============================================================
 
   DailyRoutine? _dailyRoutine;
+
   DailyRoutineGoal? _routineGoal;
 
   // ============================================================
@@ -78,6 +79,50 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
   bool _isLoading = true;
 
   bool _isChangingDate = false;
+
+  // ============================================================
+  // EDIT MODE
+  // ============================================================
+
+  bool _isEditing = false;
+
+  bool _isSaving = false;
+
+  // ============================================================
+  // EDIT CONTROLLERS
+  // ============================================================
+
+  final Map<int, TextEditingController> _sadhanaControllers = {};
+
+  final Map<int, String> _sadhanaUnits = {};
+
+  final TextEditingController _noteController = TextEditingController();
+
+  // ============================================================
+  // ROUTINE EDIT VALUES
+  // ============================================================
+
+  TimeOfDay? _editWakeTime;
+
+  TimeOfDay? _editSleepTime;
+
+  // ============================================================
+  // DAY TYPE EDIT VALUES
+  // ============================================================
+
+  bool _editIsStarred = false;
+
+  bool _editIsSankirtan = false;
+
+  bool _editIsEkadashi = false;
+
+  bool _editIsFestival = false;
+
+  // ============================================================
+  // AARTI EDIT VALUES
+  // ============================================================
+
+  final Set<int> _selectedAartiTypeIds = {};
 
   // ============================================================
   // INIT
@@ -99,6 +144,13 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
   @override
   void dispose() {
     _pageController.dispose();
+
+    for (final controller in _sadhanaControllers.values) {
+      controller.dispose();
+    }
+
+    _noteController.dispose();
+
     super.dispose();
   }
 
@@ -146,9 +198,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         _sadhanaTypes = types;
       });
 
-      // Load routine goal separately.
-      // If routine data is unavailable, the existing
-      // Day Insights functionality will continue to work.
       try {
         _routineGoal = await _routineRepository.getGoal(_userId!);
       } catch (e) {
@@ -202,10 +251,11 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
       final key = _dateKey(date);
 
       final monthStart = AppDateUtils.monthStart(date);
+
       final monthEnd = AppDateUtils.monthEnd(date);
 
       // ========================================================
-      // LOAD ALL SADHANA RECORDS FOR MONTH
+      // SADHANA
       // ========================================================
 
       final allSadhanaRecords = await _repository.getSadhanaForMonth(
@@ -214,16 +264,12 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         monthEnd,
       );
 
-      // ========================================================
-      // FILTER SELECTED DAY
-      // ========================================================
-
       final daySadhanaRecords = allSadhanaRecords.where((record) {
         return _normalizeDate(record.date) == key;
       }).toList();
 
       // ========================================================
-      // LOAD AARTI
+      // AARTI
       // ========================================================
 
       final allAartiRecords = await _repository.getAartiAttendanceForMonth(
@@ -237,7 +283,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
       }).toList();
 
       // ========================================================
-      // LOAD NOTE
+      // NOTE
       // ========================================================
 
       final notes = await _repository.getDayNotesForMonth(
@@ -256,13 +302,13 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
       }
 
       // ========================================================
-      // LOAD AARTI TYPES
+      // AARTI TYPES
       // ========================================================
 
       final aartiTypes = await _repository.getAartiTypes(_userId!);
 
       // ========================================================
-      // LOAD GOALS
+      // GOALS
       // ========================================================
 
       final goals = <int, GoalModel?>{};
@@ -280,14 +326,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
       }
 
       // ========================================================
-      // LOAD DAILY ROUTINE
-      // ========================================================
-      //
-      // THIS WAS MISSING IN THE ORIGINAL CODE.
-      //
-      // Without this call, _dailyRoutine always remained null,
-      // so the Daily Routine card had no actual data to show.
-      //
+      // DAILY ROUTINE
       // ========================================================
 
       DailyRoutine? dailyRoutine;
@@ -295,12 +334,11 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
       try {
         dailyRoutine = await _routineRepository.getByDate(_userId!, date);
       } catch (e) {
-        debugPrint('Could not load daily routine for $date: $e');
-        dailyRoutine = null;
+        debugPrint('Could not load daily routine: $e');
       }
 
       // ========================================================
-      // LOAD ROUTINE GOAL
+      // ROUTINE GOAL
       // ========================================================
 
       DailyRoutineGoal? routineGoal = _routineGoal;
@@ -351,6 +389,10 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
   // ============================================================
 
   Future<void> _changeDay(DateTime date) async {
+    if (_isEditing) {
+      return;
+    }
+
     await _loadDayData(date);
   }
 
@@ -359,17 +401,13 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
   // ============================================================
 
   Future<void> _onPageChanged(int page) async {
-    final difference = page - _initialPage;
+    if (_isEditing) {
+      return;
+    }
 
     final today = DateTime.now();
-
     final todayDate = DateTime(today.year, today.month, today.day);
-
-    final date = todayDate.add(Duration(days: difference));
-
-    // ========================================================
-    // DO NOT ALLOW FUTURE DATES
-    // ========================================================
+    final date = todayDate.add(Duration(days: page - _initialPage));
 
     if (_isFutureDate(date)) {
       if (mounted) {
@@ -391,6 +429,10 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
   // ============================================================
 
   Future<void> _pickDate() async {
+    if (_isEditing || _isChangingDate) {
+      return;
+    }
+
     final today = DateTime.now();
 
     final normalizedToday = DateTime(today.year, today.month, today.day);
@@ -413,9 +455,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
       return;
     }
 
-    final difference = selected.difference(normalizedToday).inDays;
-
-    final targetPage = _initialPage + difference;
+    final targetPage = _pageForDate(selected);
 
     if (!_pageController.hasClients) {
       await _changeDay(selected);
@@ -439,6 +479,45 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
     return _selectedDate.year == now.year &&
         _selectedDate.month == now.month &&
         _selectedDate.day == now.day;
+  }
+
+  // ============================================================
+  // PAGE FOR DATE
+  // ============================================================
+
+  int _pageForDate(DateTime date) {
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final dateOnly = DateTime(date.year, date.month, date.day);
+
+    return _initialPage + dateOnly.difference(todayDate).inDays;
+  }
+
+  // ============================================================
+  // SYNC PAGE WITH SELECTED DATE
+  // ============================================================
+
+  void _syncPageWithSelectedDate({bool animate = false}) {
+    if (!_pageController.hasClients) {
+      return;
+    }
+
+    final targetPage = _pageForDate(_selectedDate);
+    final currentPage = _pageController.page?.round();
+
+    if (currentPage == targetPage) {
+      return;
+    }
+
+    if (animate) {
+      _pageController.animateToPage(
+        targetPage,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+      );
+    } else {
+      _pageController.jumpToPage(targetPage);
+    }
   }
 
   // ============================================================
@@ -574,43 +653,89 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
           ],
         ),
         actions: [
+          if (!_isEditing)
+            IconButton(
+              tooltip: 'Edit day',
+              onPressed: _isChangingDate ? null : _startEditing,
+              icon: const Icon(Icons.edit_outlined),
+            )
+          else
+            IconButton(
+              tooltip: 'Cancel',
+              onPressed: _isSaving ? null : _cancelEditing,
+              icon: const Icon(Icons.close),
+            ),
+
           IconButton(
             tooltip: 'Select date',
-            onPressed: _isChangingDate ? null : _pickDate,
+            onPressed: (_isChangingDate || _isEditing) ? null : _pickDate,
             icon: const Icon(Icons.calendar_month_outlined),
           ),
         ],
       ),
+
       body: Column(
         children: [
-          // ======================================================
-          // DATE HEADER
-          // ======================================================
           _buildDateHeader(context),
 
-          // ======================================================
-          // SWIPE AREA
-          // ======================================================
           Expanded(
-            child: PageView.builder(
-              controller: _pageController,
-              onPageChanged: _onPageChanged,
-              itemCount: _initialPage + 1,
-              itemBuilder: (context, index) {
-                return RefreshIndicator(
-                  onRefresh: () =>
-                      _loadDayData(_selectedDate, showLoader: false),
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-                    child: _buildDayContent(context),
+            child: _isEditing
+                ? _buildEditContent(context)
+                : PageView.builder(
+                    controller: _pageController,
+                    onPageChanged: _onPageChanged,
+                    itemCount: _initialPage + 1,
+                    itemBuilder: (context, index) {
+                      return RefreshIndicator(
+                        onRefresh: () =>
+                            _loadDayData(_selectedDate, showLoader: false),
+                        child: SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                          child: _buildDayContent(context),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
+
+      // ========================================================
+      // SAVE BUTTON
+      // ========================================================
+      bottomNavigationBar: _isEditing
+          ? SafeArea(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 10,
+                      offset: const Offset(0, -3),
+                    ),
+                  ],
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: FilledButton.icon(
+                    onPressed: _isSaving ? null : _saveAll,
+                    icon: _isSaving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined),
+                    label: Text(_isSaving ? 'Saving...' : 'Save Changes'),
+                  ),
+                ),
+              ),
+            )
+          : null,
     );
   }
 
@@ -625,10 +750,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
       child: Row(
         children: [
-          // Previous
           IconButton(
             tooltip: 'Previous day',
-            onPressed: _isChangingDate
+            onPressed: (_isChangingDate || _isEditing)
                 ? null
                 : () {
                     _pageController.previousPage(
@@ -642,7 +766,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
           Expanded(
             child: InkWell(
               borderRadius: BorderRadius.circular(14),
-              onTap: _pickDate,
+              onTap: _isEditing ? null : _pickDate,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Column(
@@ -654,13 +778,16 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+
                     const SizedBox(height: 2),
+
                     Text(
                       DateFormat('d MMMM yyyy').format(_selectedDate),
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+
                     if (_isToday)
                       Text(
                         'Today',
@@ -675,10 +802,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
             ),
           ),
 
-          // Next
           IconButton(
             tooltip: _isToday ? 'Already at today' : 'Next day',
-            onPressed: (_isChangingDate || _isToday)
+            onPressed: (_isChangingDate || _isToday || _isEditing)
                 ? null
                 : () {
                     final nextDate = _selectedDate.add(const Duration(days: 1));
@@ -700,6 +826,1083 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
   }
 
   // ============================================================
+  // START EDITING
+  // ============================================================
+
+  void _startEditing() {
+    if (_isSaving) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // Clear old controllers
+    // ----------------------------------------------------------
+
+    for (final controller in _sadhanaControllers.values) {
+      controller.dispose();
+    }
+
+    _sadhanaControllers.clear();
+
+    _sadhanaUnits.clear();
+
+    // ----------------------------------------------------------
+    // Sadhana
+    // ----------------------------------------------------------
+
+    for (final type in _sadhanaTypes) {
+      if (type.id == null) {
+        continue;
+      }
+
+      if (type.name.toLowerCase() == 'aarti') {
+        continue;
+      }
+
+      final record = _findRecord(type.id);
+
+      final controller = TextEditingController(
+        text: record == null ? '' : _formatValue(record.value),
+      );
+
+      _sadhanaControllers[type.id!] = controller;
+
+      // --------------------------------------------------------
+      // Units
+      // --------------------------------------------------------
+
+      final typeName = type.name.toLowerCase();
+
+      if (typeName == 'chanting') {
+        _sadhanaUnits[type.id!] = 'rounds';
+      } else if (typeName == 'hearing') {
+        _sadhanaUnits[type.id!] = 'minutes';
+      } else if (typeName == 'reading') {
+        final existingUnit = record?.unit?.toLowerCase();
+
+        const allowedUnits = ['pages', 'shloka', 'minutes'];
+
+        _sadhanaUnits[type.id!] = allowedUnits.contains(existingUnit)
+            ? existingUnit!
+            : 'pages';
+      } else {
+        _sadhanaUnits[type.id!] = _getDisplayUnit(type, record);
+      }
+    }
+
+    // ----------------------------------------------------------
+    // Routine
+    // ----------------------------------------------------------
+
+    final wake = _dailyRoutine?.wakeUpTime;
+
+    final sleep = _dailyRoutine?.sleepTime;
+
+    _editWakeTime = wake == null
+        ? null
+        : TimeOfDay(hour: wake.hour, minute: wake.minute);
+
+    _editSleepTime = sleep == null
+        ? null
+        : TimeOfDay(hour: sleep.hour, minute: sleep.minute);
+
+    // ----------------------------------------------------------
+    // Note
+    // ----------------------------------------------------------
+
+    _noteController.text = _dayNote?.note ?? '';
+
+    _editIsStarred = _dayNote?.isStarred ?? false;
+
+    _editIsSankirtan = _dayNote?.isSankirtan ?? false;
+
+    _editIsEkadashi = _dayNote?.isEkadashi ?? false;
+
+    _editIsFestival = _dayNote?.isFestival ?? false;
+
+    // ----------------------------------------------------------
+    // Aarti
+    // ----------------------------------------------------------
+
+    _selectedAartiTypeIds.clear();
+
+    for (final attendance in _aartiRecords) {
+      _selectedAartiTypeIds.add(attendance.aartiTypeId);
+    }
+
+    setState(() {
+      _isEditing = true;
+    });
+  }
+
+  // ============================================================
+  // CANCEL EDITING
+  // ============================================================
+
+  void _cancelEditing() {
+    if (_isSaving) {
+      return;
+    }
+
+    setState(() {
+      _isEditing = false;
+    });
+  }
+
+  // ============================================================
+  // SAVE ALL
+  // ============================================================
+
+  Future<void> _saveAll() async {
+    if (_userId == null || _isSaving) {
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      final now = DateTime.now();
+
+      final dateOnly = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+      );
+
+      final dateKey = _dateKey(dateOnly);
+
+      // ========================================================
+      // 1. SAVE DAILY ROUTINE
+      // ========================================================
+
+      final existingRoutine = await _routineRepository.getByDate(
+        _userId!,
+        dateOnly,
+      );
+
+      final wakeDateTime = _combineDateAndTime(dateOnly, _editWakeTime);
+
+      final sleepDateTime = _combineDateAndTime(dateOnly, _editSleepTime);
+
+      if (wakeDateTime != null ||
+          sleepDateTime != null ||
+          existingRoutine != null) {
+        final routine = DailyRoutine(
+          id: existingRoutine?.id,
+          userId: _userId!,
+          date: dateOnly,
+          wakeUpTime: wakeDateTime,
+          sleepTime: sleepDateTime,
+          createdAt: existingRoutine?.createdAt ?? now,
+          updatedAt: now,
+        );
+
+        await _routineRepository.save(routine);
+      }
+
+      // ========================================================
+      // 2. SAVE SADHANA
+      // ========================================================
+
+      for (final type in _sadhanaTypes) {
+        final typeId = type.id;
+
+        if (typeId == null) {
+          continue;
+        }
+
+        if (type.name.toLowerCase() == 'aarti') {
+          continue;
+        }
+
+        final controller = _sadhanaControllers[typeId];
+
+        if (controller == null) {
+          continue;
+        }
+
+        final text = controller.text.trim();
+
+        // ------------------------------------------------------
+        // Empty value
+        // ------------------------------------------------------
+
+        final value = double.tryParse(text) ?? 0;
+
+        // ------------------------------------------------------
+        // Unit
+        // ------------------------------------------------------
+
+        final typeName = type.name.toLowerCase();
+
+        String unit;
+
+        switch (typeName) {
+          case 'chanting':
+            // LOCKED
+            unit = 'rounds';
+            break;
+
+          case 'hearing':
+            // LOCKED
+            unit = 'minutes';
+            break;
+
+          case 'reading':
+            // DROPDOWN
+            const allowedUnits = ['pages', 'shloka', 'minutes'];
+
+            final selectedUnit = _sadhanaUnits[typeId];
+
+            unit = allowedUnits.contains(selectedUnit)
+                ? selectedUnit!
+                : 'pages';
+
+            break;
+
+          default:
+            unit = _sadhanaUnits[typeId] ?? _getDefaultUnit(type);
+        }
+
+        // ------------------------------------------------------
+        // Existing record
+        // ------------------------------------------------------
+
+        final existing = _findRecord(typeId);
+
+        final sadhana = DailySadhanaModel(
+          id: existing?.id,
+          userId: _userId!,
+          date: dateKey,
+          sadhanaTypeId: typeId,
+          value: value,
+          unit: unit,
+          createdAt: existing?.createdAt ?? now.toIso8601String(),
+          updatedAt: now.toIso8601String(),
+        );
+
+        await _repository.saveSadhana(sadhana);
+      }
+
+      // ========================================================
+      // 3. SAVE AARTI
+      // ========================================================
+
+      final existingAartiIds = _aartiRecords
+          .map((item) => item.aartiTypeId)
+          .toSet();
+
+      // --------------------------------------------------------
+      // Add newly selected Aartis
+      // --------------------------------------------------------
+
+      for (final aartiTypeId in _selectedAartiTypeIds) {
+        if (!existingAartiIds.contains(aartiTypeId)) {
+          final attendance = DailyAartiModel(
+            userId: _userId!,
+            aartiTypeId: aartiTypeId,
+            date: dateKey,
+            createdAt: now.toIso8601String(),
+          );
+
+          await _repository.saveAartiAttendance(attendance);
+        }
+      }
+
+      // --------------------------------------------------------
+      // Remove unchecked Aartis
+      // --------------------------------------------------------
+
+      for (final existingId in existingAartiIds) {
+        if (!_selectedAartiTypeIds.contains(existingId)) {
+          await _repository.removeAartiAttendance(
+            _userId!,
+            existingId,
+            dateKey,
+          );
+        }
+      }
+
+      // ========================================================
+      // 4. SAVE DAY NOTE
+      // ========================================================
+
+      final existingNote = _dayNote;
+
+      final note = DayNoteModel(
+        id: existingNote?.id,
+        userId: _userId!,
+        date: dateKey,
+        isStarred: _editIsStarred,
+        isSankirtan: _editIsSankirtan,
+        isEkadashi: _editIsEkadashi,
+        isFestival: _editIsFestival,
+        note: _noteController.text.trim(),
+        createdAt: existingNote?.createdAt ?? now.toIso8601String(),
+        updatedAt: now.toIso8601String(),
+      );
+
+      await _repository.saveDayNote(note);
+
+      // ========================================================
+      // 5. RELOAD EVERYTHING
+      // ========================================================
+
+      // Keep the PageController synchronized with the date being edited.
+      // When the PageView is temporarily replaced by the edit screen, its
+      // visual page position can become out of sync with _selectedDate.
+      // Re-syncing here guarantees that the next/previous swipe continues
+      // from the correct day after saving.
+      final savedDate = _selectedDate;
+
+      await _loadDayData(savedDate, showLoader: false);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isEditing = false;
+      });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _isEditing) {
+          return;
+        }
+
+        _syncPageWithSelectedDate();
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Day details saved successfully.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Error saving day insights: $e');
+
+      debugPrint('$stackTrace');
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not save: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  // ============================================================
+  // COMBINE DATE + TIME
+  // ============================================================
+
+  DateTime? _combineDateAndTime(DateTime date, TimeOfDay? time) {
+    if (time == null) {
+      return null;
+    }
+
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  // ============================================================
+  // PICK WAKE TIME
+  // ============================================================
+
+  Future<void> _pickWakeTime() async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: _editWakeTime ?? const TimeOfDay(hour: 6, minute: 0),
+    );
+
+    if (selected == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _editWakeTime = selected;
+    });
+  }
+
+  // ============================================================
+  // PICK SLEEP TIME
+  // ============================================================
+
+  Future<void> _pickSleepTime() async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: _editSleepTime ?? const TimeOfDay(hour: 22, minute: 0),
+    );
+
+    if (selected == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _editSleepTime = selected;
+    });
+  }
+
+  // ============================================================
+  // CLEAR WAKE TIME
+  // ============================================================
+
+  void _clearWakeTime() {
+    setState(() {
+      _editWakeTime = null;
+    });
+  }
+
+  // ============================================================
+  // CLEAR SLEEP TIME
+  // ============================================================
+
+  void _clearSleepTime() {
+    setState(() {
+      _editSleepTime = null;
+    });
+  }
+
+  // ============================================================
+  // EDIT CONTENT
+  // ============================================================
+
+  Widget _buildEditContent(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildEditRoutineSection(context),
+
+          const SizedBox(height: 14),
+
+          _buildEditSadhanaSection(context),
+
+          const SizedBox(height: 14),
+
+          _buildEditAartiSection(context),
+
+          const SizedBox(height: 14),
+
+          _buildEditDayTypeSection(context),
+
+          const SizedBox(height: 14),
+
+          _buildEditNoteSection(context),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // EDIT ROUTINE SECTION
+  // ============================================================
+
+  Widget _buildEditRoutineSection(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildEditSectionHeader(
+              context,
+              icon: Icons.schedule_rounded,
+              title: 'Daily Routine',
+            ),
+
+            const SizedBox(height: 14),
+
+            Row(
+              children: [
+                Expanded(
+                  child: _buildTimeEditCard(
+                    context,
+                    title: 'Wake up',
+                    icon: Icons.wb_sunny_rounded,
+                    iconColor: Colors.orange,
+                    time: _editWakeTime,
+                    onTap: _pickWakeTime,
+                    onClear: _editWakeTime == null ? null : _clearWakeTime,
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                Expanded(
+                  child: _buildTimeEditCard(
+                    context,
+                    title: 'Sleep',
+                    icon: Icons.nightlight_round,
+                    iconColor: Colors.indigo,
+                    time: _editSleepTime,
+                    onTap: _pickSleepTime,
+                    onClear: _editSleepTime == null ? null : _clearSleepTime,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // TIME EDIT CARD
+  // ============================================================
+
+  Widget _buildTimeEditCard(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required Color iconColor,
+    required TimeOfDay? time,
+    required VoidCallback onTap,
+    required VoidCallback? onClear,
+  }) {
+    final theme = Theme.of(context);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(15),
+      onTap: _isSaving ? null : onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(15),
+          color: theme.colorScheme.surface,
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: iconColor, size: 20),
+
+                const SizedBox(width: 7),
+
+                Expanded(
+                  child: Text(
+                    title,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+
+                if (onClear != null)
+                  InkWell(
+                    onTap: _isSaving ? null : onClear,
+                    child: const Icon(Icons.close, size: 18),
+                  ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            Text(
+              time == null ? 'Not set' : _formatTimeOfDay(time),
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: time == null
+                    ? theme.colorScheme.onSurfaceVariant
+                    : theme.colorScheme.onSurface,
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
+            Text(
+              'Tap to change',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // FORMAT TIME OF DAY
+  // ============================================================
+
+  String _formatTimeOfDay(TimeOfDay time) {
+    final hour = time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod;
+
+    final minute = time.minute.toString().padLeft(2, '0');
+
+    final period = time.period == DayPeriod.am ? 'AM' : 'PM';
+
+    return '$hour:$minute $period';
+  }
+
+  // ============================================================
+  // EDIT SADHANA SECTION
+  // ============================================================
+
+  Widget _buildEditSadhanaSection(BuildContext context) {
+    final normalTypes = _sadhanaTypes.where(
+      (type) => type.name.toLowerCase() != 'aarti',
+    );
+
+    if (normalTypes.isEmpty) {
+      return const SizedBox();
+    }
+
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildEditSectionHeader(
+              context,
+              icon: Icons.auto_awesome_outlined,
+              title: 'Sadhana',
+            ),
+
+            const SizedBox(height: 14),
+
+            ...normalTypes.map(
+              (type) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _buildEditableSadhanaField(context, type),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // EDITABLE SADHANA FIELD
+  // ============================================================
+
+  Widget _buildEditableSadhanaField(
+    BuildContext context,
+    SadhanaTypeModel type,
+  ) {
+    final theme = Theme.of(context);
+
+    final controller = _sadhanaControllers[type.id!];
+
+    if (controller == null) {
+      return const SizedBox();
+    }
+
+    final name = type.name.toLowerCase();
+
+    final isChanting = name == 'chanting';
+
+    final isHearing = name == 'hearing';
+
+    final isReading = name == 'reading';
+
+    // ----------------------------------------------------------
+    // Fixed units
+    // ----------------------------------------------------------
+
+    if (isChanting) {
+      _sadhanaUnits[type.id!] = 'rounds';
+    }
+
+    if (isHearing) {
+      _sadhanaUnits[type.id!] = 'minutes';
+    }
+
+    final unit = _sadhanaUnits[type.id!] ?? _getDefaultUnit(type);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(type.icon ?? '🙏', style: const TextStyle(fontSize: 24)),
+
+              const SizedBox(width: 9),
+
+              Expanded(
+                child: Text(
+                  type.name,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  enabled: !_isSaving,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: 'Value',
+                    hintText: 'Enter ${type.name.toLowerCase()}',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.edit_outlined),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 10),
+
+              // ==================================================
+              // CHANTING
+              // ==================================================
+              if (isChanting)
+                Expanded(child: _buildLockedUnitField(context, unit: 'rounds'))
+              // ==================================================
+              // HEARING
+              // ==================================================
+              else if (isHearing)
+                Expanded(child: _buildLockedUnitField(context, unit: 'minutes'))
+              // ==================================================
+              // READING
+              // ==================================================
+              else if (isReading)
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: _readingUnitValue(type.id!),
+                    decoration: const InputDecoration(
+                      labelText: 'Unit',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'pages', child: Text('Pages')),
+                      DropdownMenuItem(value: 'shloka', child: Text('Shloka')),
+                      DropdownMenuItem(
+                        value: 'minutes',
+                        child: Text('Minutes'),
+                      ),
+                    ],
+                    onChanged: _isSaving
+                        ? null
+                        : (value) {
+                            if (value == null) {
+                              return;
+                            }
+
+                            setState(() {
+                              _sadhanaUnits[type.id!] = value;
+                            });
+                          },
+                  ),
+                )
+              // ==================================================
+              // OTHER
+              // ==================================================
+              else
+                Expanded(child: _buildLockedUnitField(context, unit: unit)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // READING UNIT
+  // ============================================================
+
+  String _readingUnitValue(int typeId) {
+    final value = _sadhanaUnits[typeId];
+
+    const allowed = ['pages', 'shloka', 'minutes'];
+
+    if (value == null || !allowed.contains(value)) {
+      return 'pages';
+    }
+
+    return value;
+  }
+
+  // ============================================================
+  // LOCKED UNIT FIELD
+  // ============================================================
+
+  Widget _buildLockedUnitField(BuildContext context, {required String unit}) {
+    return TextFormField(
+      initialValue: unit,
+      enabled: false,
+      decoration: const InputDecoration(
+        labelText: 'Unit',
+        border: OutlineInputBorder(),
+        suffixIcon: Icon(Icons.lock_outline),
+      ),
+    );
+  }
+
+  // ============================================================
+  // EDIT AARTI SECTION
+  // ============================================================
+
+  Widget _buildEditAartiSection(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildEditSectionHeader(
+              context,
+              icon: Icons.local_fire_department_outlined,
+              title: 'Aarti',
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              'Select all Aartis you attended.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            if (_aartiTypes.isEmpty)
+              Text(
+                'No Aarti types added yet.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              )
+            else
+              ..._aartiTypes.map((type) {
+                final int? id = type.id;
+
+                if (id == null) {
+                  return const SizedBox();
+                }
+
+                return CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _selectedAartiTypeIds.contains(id),
+                  title: Text(type.name.toString()),
+                  secondary: const Text('🪔', style: TextStyle(fontSize: 22)),
+                  onChanged: _isSaving
+                      ? null
+                      : (checked) {
+                          setState(() {
+                            if (checked == true) {
+                              _selectedAartiTypeIds.add(id);
+                            } else {
+                              _selectedAartiTypeIds.remove(id);
+                            }
+                          });
+                        },
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // EDIT DAY TYPE SECTION
+  // ============================================================
+
+  Widget _buildEditDayTypeSection(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildEditSectionHeader(
+              context,
+              icon: Icons.label_outline,
+              title: 'Day Type',
+            ),
+
+            const SizedBox(height: 8),
+
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Important day'),
+              secondary: const Icon(Icons.star_outline),
+              value: _editIsStarred,
+              onChanged: _isSaving
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _editIsStarred = value;
+                      });
+                    },
+            ),
+
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Sankirtan'),
+              secondary: const Icon(Icons.groups_2_outlined),
+              value: _editIsSankirtan,
+              onChanged: _isSaving
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _editIsSankirtan = value;
+                      });
+                    },
+            ),
+
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Ekadashi'),
+              secondary: const Icon(Icons.brightness_2_outlined),
+              value: _editIsEkadashi,
+              onChanged: _isSaving
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _editIsEkadashi = value;
+                      });
+                    },
+            ),
+
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Festival'),
+              secondary: const Icon(Icons.celebration_outlined),
+              value: _editIsFestival,
+              onChanged: _isSaving
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _editIsFestival = value;
+                      });
+                    },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // EDIT NOTE SECTION
+  // ============================================================
+
+  Widget _buildEditNoteSection(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildEditSectionHeader(
+              context,
+              icon: Icons.sticky_note_2_outlined,
+              title: 'Day Note',
+            ),
+
+            const SizedBox(height: 12),
+
+            TextField(
+              controller: _noteController,
+              enabled: !_isSaving,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                hintText:
+                    'Write something you want to remember about this day...',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              'You can leave the note empty.',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // EDIT SECTION HEADER
+  // ============================================================
+
+  Widget _buildEditSectionHeader(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+  }) {
+    final theme = Theme.of(context);
+
+    return Row(
+      children: [
+        Icon(icon, size: 21, color: theme.colorScheme.primary),
+
+        const SizedBox(width: 8),
+
+        Text(
+          title,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
   // DAY CONTENT
   // ============================================================
 
@@ -707,37 +1910,22 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ======================================================
-        // DAY TYPE
-        // ======================================================
         _buildDayTypeCard(context),
 
         const SizedBox(height: 12),
 
-        // ======================================================
-        // DAILY ROUTINE
-        // ======================================================
         _buildDailyRoutineCard(context),
 
         const SizedBox(height: 12),
 
-        // ======================================================
-        // SADHANA
-        // ======================================================
         _buildSadhanaSection(context),
 
         const SizedBox(height: 12),
 
-        // ======================================================
-        // AARTI
-        // ======================================================
         _buildAartiCard(context),
 
         const SizedBox(height: 12),
 
-        // ======================================================
-        // NOTE
-        // ======================================================
         _buildNoteCard(context),
       ],
     );
@@ -753,8 +1941,11 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
     final note = _dayNote;
 
     final isImportant = note?.isStarred ?? false;
+
     final isSankirtan = note?.isSankirtan ?? false;
+
     final isEkadashi = note?.isEkadashi ?? false;
+
     final isFestival = note?.isFestival ?? false;
 
     final hasAny = isImportant || isSankirtan || isEkadashi || isFestival;
@@ -771,7 +1962,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                 Icons.label_outline,
                 color: theme.colorScheme.onSurfaceVariant,
               ),
+
               const SizedBox(width: 10),
+
               Expanded(
                 child: Text(
                   'No day type marked',
@@ -794,7 +1987,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         child: Row(
           children: [
             Icon(Icons.label_outline, color: theme.colorScheme.primary),
+
             const SizedBox(width: 10),
+
             Expanded(
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -806,18 +2001,21 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                         icon: Icons.groups_2,
                         label: 'Sankirtan',
                       ),
+
                     if (isEkadashi)
                       _buildDayTypeBadge(
                         context,
                         icon: Icons.brightness_2,
                         label: 'Ekadashi',
                       ),
+
                     if (isFestival)
                       _buildDayTypeBadge(
                         context,
                         icon: Icons.celebration,
                         label: 'Festival',
                       ),
+
                     if (isImportant)
                       _buildDayTypeBadge(
                         context,
@@ -856,7 +2054,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 16, color: theme.colorScheme.onPrimaryContainer),
+
           const SizedBox(width: 5),
+
           Text(
             label,
             style: theme.textTheme.labelMedium?.copyWith(
@@ -879,7 +2079,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
     final routine = _dailyRoutine;
 
     final wake = routine?.wakeUpTime;
+
     final sleep = routine?.sleepTime;
+
     final duration = routine?.sleepDuration;
 
     final wakeGoal = _routineGoal?.wakeUpTimeText;
@@ -896,9 +2098,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ==================================================
-            // HEADER
-            // ==================================================
             Row(
               children: [
                 Icon(
@@ -906,7 +2105,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                   size: 21,
                   color: theme.colorScheme.primary,
                 ),
+
                 const SizedBox(width: 8),
+
                 Expanded(
                   child: Text(
                     'Daily Routine',
@@ -920,9 +2121,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
 
             const SizedBox(height: 12),
 
-            // ==================================================
-            // ROUTINE DATA
-            // ==================================================
             if (!hasRoutineData)
               Container(
                 width: double.infinity,
@@ -941,7 +2139,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                       size: 18,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
+
                     const SizedBox(width: 8),
+
                     Expanded(
                       child: Text(
                         'No routine recorded for this day.',
@@ -968,7 +2168,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                       goal: wakeGoal,
                     ),
                   ),
+
                   const SizedBox(width: 10),
+
                   Expanded(
                     child: _buildRoutineTimeCard(
                       context,
@@ -986,9 +2188,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
 
               const SizedBox(height: 10),
 
-              // ==================================================
-              // SLEEP DURATION
-              // ==================================================
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(
@@ -1006,7 +2205,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                       size: 20,
                       color: theme.colorScheme.primary,
                     ),
+
                     const SizedBox(width: 9),
+
                     Expanded(
                       child: Text(
                         'Sleep duration',
@@ -1015,6 +2216,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                         ),
                       ),
                     ),
+
                     Text(
                       duration == null
                           ? '--'
@@ -1063,7 +2265,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
           Row(
             children: [
               Icon(icon, color: iconColor, size: 20),
+
               const SizedBox(width: 7),
+
               Expanded(
                 child: Text(
                   title,
@@ -1089,6 +2293,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
 
           if (goal != null) ...[
             const SizedBox(height: 3),
+
             Text(
               'Goal: $goal',
               maxLines: 1,
@@ -1197,9 +2402,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         padding: const EdgeInsets.all(14),
         child: Column(
           children: [
-            // ==================================================
-            // TOP
-            // ==================================================
             Row(
               children: [
                 Text(type.icon ?? '🙏', style: const TextStyle(fontSize: 26)),
@@ -1216,7 +2418,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+
                       const SizedBox(height: 2),
+
                       Text(
                         unit,
                         style: theme.textTheme.bodySmall?.copyWith(
@@ -1239,9 +2443,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
               ],
             ),
 
-            // ==================================================
-            // GOAL
-            // ==================================================
             if (applicableGoal) ...[
               const SizedBox(height: 12),
 
@@ -1294,7 +2495,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                       size: 16,
                       color: theme.colorScheme.primary,
                     ),
+
                     const SizedBox(width: 5),
+
                     Text(
                       'Daily goal completed 🎉',
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1307,9 +2510,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
               ],
             ],
 
-            // ==================================================
-            // UNIT MISMATCH
-            // ==================================================
             if (hasGoal && !unitMatches) ...[
               const SizedBox(height: 8),
 
@@ -1499,6 +2699,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
 
                 if (note?.isStarred == true) ...[
                   const SizedBox(width: 8),
+
                   const Icon(Icons.star, size: 18, color: Colors.amber),
                 ],
               ],

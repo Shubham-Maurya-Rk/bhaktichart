@@ -3353,14 +3353,10 @@ class _HomeScreenState extends State<HomeScreen> {
           width: double.infinity,
           child: FilledButton.icon(
             onPressed: () {
-              final today = DateTime.now();
-
-              setState(() {
-                _selectedDay = today;
-                _focusedDay = today;
-              });
-
-              _showDaySadhanaSheet(today);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DayInsightsScreen()),
+              );
             },
             icon: const Icon(Icons.add),
             label: const Text(
