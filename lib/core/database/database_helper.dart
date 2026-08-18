@@ -12,6 +12,10 @@ class DatabaseHelper {
 
   Database? _database;
 
+  // ============================================================
+  // DATABASE
+  // ============================================================
+
   Future<Database> get database async {
     if (_database != null) {
       return _database!;
@@ -22,10 +26,22 @@ class DatabaseHelper {
     return _database!;
   }
 
-  Future<Database> _initDatabase() async {
+  // ============================================================
+  // DATABASE PATH
+  // ============================================================
+
+  Future<String> get databasePath async {
     final databasesPath = await getDatabasesPath();
 
-    final path = join(databasesPath, _databaseName);
+    return join(databasesPath, _databaseName);
+  }
+
+  // ============================================================
+  // INIT DATABASE
+  // ============================================================
+
+  Future<Database> _initDatabase() async {
+    final path = await databasePath;
 
     return await openDatabase(
       path,
@@ -42,6 +58,36 @@ class DatabaseHelper {
     );
   }
 
+  // ============================================================
+  // CLOSE DATABASE
+  // ============================================================
+
+  Future<void> closeDatabase() async {
+    final db = _database;
+
+    if (db != null && db.isOpen) {
+      await db.close();
+    }
+
+    _database = null;
+  }
+
+  // ============================================================
+  // REOPEN DATABASE
+  // ============================================================
+
+  Future<Database> reopenDatabase() async {
+    await closeDatabase();
+
+    _database = await _initDatabase();
+
+    return _database!;
+  }
+
+  // ============================================================
+  // UPGRADE
+  // ============================================================
+
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     // --------------------------------------------------
     // VERSION 2
@@ -49,78 +95,82 @@ class DatabaseHelper {
 
     if (oldVersion < 2) {
       await db.execute('''
-      ALTER TABLE day_notes
-      ADD COLUMN is_sankirtan INTEGER NOT NULL DEFAULT 0
-    ''');
+        ALTER TABLE day_notes
+        ADD COLUMN is_sankirtan INTEGER NOT NULL DEFAULT 0
+      ''');
 
       await db.execute('''
-      ALTER TABLE day_notes
-      ADD COLUMN is_ekadashi INTEGER NOT NULL DEFAULT 0
-    ''');
+        ALTER TABLE day_notes
+        ADD COLUMN is_ekadashi INTEGER NOT NULL DEFAULT 0
+      ''');
 
       await db.execute('''
-      ALTER TABLE day_notes
-      ADD COLUMN is_festival INTEGER NOT NULL DEFAULT 0
-    ''');
+        ALTER TABLE day_notes
+        ADD COLUMN is_festival INTEGER NOT NULL DEFAULT 0
+      ''');
     }
 
     // --------------------------------------------------
-    // VERSION 3 - DAILY ROUTINE
+    // VERSION 3
     // --------------------------------------------------
 
     if (oldVersion < 3) {
       await db.execute('''
-      CREATE TABLE daily_routine (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        CREATE TABLE daily_routine (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-        user_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
 
-        date TEXT NOT NULL,
+          date TEXT NOT NULL,
 
-        wake_up_time TEXT,
+          wake_up_time TEXT,
 
-        sleep_time TEXT,
+          sleep_time TEXT,
 
-        created_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
 
-        updated_at TEXT,
+          updated_at TEXT,
 
-        FOREIGN KEY (user_id)
-          REFERENCES users(id)
-          ON DELETE CASCADE,
+          FOREIGN KEY (user_id)
+            REFERENCES users(id)
+            ON DELETE CASCADE,
 
-        UNIQUE (
-          user_id,
-          date
+          UNIQUE (
+            user_id,
+            date
+          )
         )
-      )
-    ''');
+      ''');
 
       await db.execute('''
-      CREATE TABLE daily_routine_goals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        CREATE TABLE daily_routine_goals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-        user_id INTEGER NOT NULL UNIQUE,
+          user_id INTEGER NOT NULL UNIQUE,
 
-        wake_up_hour INTEGER NOT NULL DEFAULT 6,
+          wake_up_hour INTEGER NOT NULL DEFAULT 6,
 
-        wake_up_minute INTEGER NOT NULL DEFAULT 0,
+          wake_up_minute INTEGER NOT NULL DEFAULT 0,
 
-        sleep_hour INTEGER NOT NULL DEFAULT 22,
+          sleep_hour INTEGER NOT NULL DEFAULT 22,
 
-        sleep_minute INTEGER NOT NULL DEFAULT 0,
+          sleep_minute INTEGER NOT NULL DEFAULT 0,
 
-        created_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
 
-        updated_at TEXT,
+          updated_at TEXT,
 
-        FOREIGN KEY (user_id)
-          REFERENCES users(id)
-          ON DELETE CASCADE
-      )
-    ''');
+          FOREIGN KEY (user_id)
+            REFERENCES users(id)
+            ON DELETE CASCADE
+        )
+      ''');
     }
   }
+
+  // ============================================================
+  // CREATE
+  // ============================================================
 
   Future<void> _onCreate(Database db, int version) async {
     // --------------------------------------------------
@@ -135,6 +185,7 @@ class DatabaseHelper {
         updated_at TEXT
       )
     ''');
+
     // --------------------------------------------------
     // DAILY ROUTINE
     // --------------------------------------------------
@@ -316,10 +367,6 @@ class DatabaseHelper {
 
         FOREIGN KEY (user_id)
           REFERENCES users(id)
-          ON DELETE CASCADE,
-
-        FOREIGN KEY (aarti_type_id)
-          REFERENCES aarti_types(id)
           ON DELETE CASCADE,
 
         UNIQUE (

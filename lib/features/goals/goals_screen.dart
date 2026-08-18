@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:bhaktichart/models/goal_model.dart';
 import 'package:bhaktichart/models/sadhana_type_model.dart';
 import 'package:bhaktichart/repositories/sadhana_repository.dart';
+import 'package:bhaktichart/features/backup_restore/backup_restore_screen.dart';
 
 class GoalsScreen extends StatefulWidget {
   const GoalsScreen({super.key});
@@ -12,15 +13,45 @@ class GoalsScreen extends StatefulWidget {
 }
 
 class _GoalsScreenState extends State<GoalsScreen> {
+  // ============================================================
+  // REPOSITORY
+  // ============================================================
+
   final SadhanaRepository _repository = SadhanaRepository();
+
+  // ============================================================
+  // USER
+  // ============================================================
 
   int? _userId;
 
+  // ============================================================
+  // SADHANA TYPES
+  // ============================================================
+
   List<SadhanaTypeModel> _sadhanaTypes = [];
+
+  // ============================================================
+  // GOALS
+  // ============================================================
 
   final Map<int, GoalModel?> _goals = {};
 
+  // ============================================================
+  // LOADING
+  // ============================================================
+
   bool _isLoading = true;
+
+  // ============================================================
+  // BACKUP / RESTORE NAVIGATION
+  // ============================================================
+
+  bool _isOpeningBackup = false;
+
+  // ============================================================
+  // INIT
+  // ============================================================
 
   @override
   void initState() {
@@ -30,7 +61,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   // ============================================================
-  // LOAD
+  // LOAD GOALS
   // ============================================================
 
   Future<void> _loadGoals() async {
@@ -53,11 +84,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
         goals[type.id!] = await _repository.getGoal(user.id!, type.id!);
       }
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _userId = user.id;
         _sadhanaTypes = types;
+
         _goals.clear();
         _goals.addAll(goals);
       });
@@ -95,10 +129,57 @@ class _GoalsScreenState extends State<GoalsScreen> {
       },
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     if (result == true) {
       await _loadGoals();
+    }
+  }
+
+  // ============================================================
+  // OPEN BACKUP & RESTORE
+  // ============================================================
+
+  Future<void> _openBackupRestore() async {
+    if (_isOpeningBackup) {
+      return;
+    }
+
+    setState(() {
+      _isOpeningBackup = true;
+    });
+
+    try {
+      final restored = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => const BackupRestoreScreen()),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      // ----------------------------------------------------------
+      // If database was restored, reload goals.
+      // ----------------------------------------------------------
+
+      if (restored == true) {
+        setState(() {
+          _isLoading = true;
+        });
+
+        await _loadGoals();
+      }
+    } catch (e) {
+      debugPrint('Error opening Backup & Restore: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOpeningBackup = false;
+        });
+      }
     }
   }
 
@@ -132,6 +213,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
+              // ==================================================
+              // ICON
+              // ==================================================
               Container(
                 width: 52,
                 height: 52,
@@ -149,6 +233,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
               const SizedBox(width: 14),
 
+              // ==================================================
+              // GOAL DETAILS
+              // ==================================================
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -172,16 +259,100 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       )
                     else
                       Text(
-                        '${_formatValue(goal.targetValue)} ${goal.unit ?? ''} / day',
+                        '${_formatValue(goal.targetValue)} '
+                        '${goal.unit ?? ''} / day',
                         style: theme.textTheme.bodyMedium,
                       ),
                   ],
                 ),
               ),
 
+              // ==================================================
+              // ACTION ICON
+              // ==================================================
               Icon(
                 goal == null ? Icons.add_circle_outline : Icons.edit_outlined,
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // BACKUP & RESTORE CARD
+  // ============================================================
+
+  Widget _buildBackupRestoreCard(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: _isOpeningBackup ? null : _openBackupRestore,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              // ==================================================
+              // ICON
+              // ==================================================
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.secondaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.backup_outlined,
+                  color: theme.colorScheme.onSecondaryContainer,
+                  size: 27,
+                ),
+              ),
+
+              const SizedBox(width: 14),
+
+              // ==================================================
+              // TEXT
+              // ==================================================
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Backup & Restore',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    Text(
+                      'Export your data or restore a previous backup',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 8),
+
+              // ==================================================
+              // ACTION
+              // ==================================================
+              _isOpeningBackup
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.chevron_right),
             ],
           ),
         ),
@@ -195,6 +366,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -206,38 +379,59 @@ class _GoalsScreenState extends State<GoalsScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text(
-                      'Daily Sadhana Goals',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
+              child: RefreshIndicator(
+                onRefresh: _loadGoals,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // ==========================================
+                      // HEADER
+                      // ==========================================
+                      const Text(
+                        'Daily Sadhana Goals',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 6),
+                      const SizedBox(height: 6),
 
-                    Text(
-                      'Set a simple daily target for your spiritual practice.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      Text(
+                        'Set a simple daily target for your spiritual practice.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 20),
+                      const SizedBox(height: 20),
 
-                    ..._sadhanaTypes.map(_buildGoalCard),
-                  ],
+                      // ==========================================
+                      // GOALS
+                      // ==========================================
+                      ..._sadhanaTypes.map(_buildGoalCard),
+
+                      const SizedBox(height: 8),
+
+                      // ==========================================
+                      // BACKUP & RESTORE
+                      // ==========================================
+                      _buildBackupRestoreCard(context),
+                    ],
+                  ),
                 ),
               ),
             ),
     );
   }
 }
+
+// ==================================================================
+// GOAL EDIT DIALOG
+// ==================================================================
 
 class GoalEditDialog extends StatefulWidget {
   final SadhanaTypeModel type;
@@ -327,7 +521,9 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
   // ============================================================
 
   Future<void> _save() async {
-    if (_isSaving) return;
+    if (_isSaving) {
+      return;
+    }
 
     final value = double.tryParse(_controller.text.trim());
 
@@ -359,11 +555,15 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
 
       await widget.repository.saveGoal(goal);
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       Navigator.of(context).pop(true);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _isSaving = false;
@@ -380,7 +580,9 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
   // ============================================================
 
   Future<void> _delete() async {
-    if (_isDeleting) return;
+    if (_isDeleting) {
+      return;
+    }
 
     setState(() {
       _isDeleting = true;
@@ -389,11 +591,15 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
     try {
       await widget.repository.deleteGoal(widget.userId, widget.type.id!);
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       Navigator.of(context).pop(true);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _isDeleting = false;
@@ -417,7 +623,9 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
       title: Row(
         children: [
           Text(widget.type.icon ?? '🙏', style: const TextStyle(fontSize: 26)),
+
           const SizedBox(width: 10),
+
           Expanded(child: Text('${widget.type.name} Goal')),
         ],
       ),
@@ -427,6 +635,9 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // ==================================================
+            // READING UNIT
+            // ==================================================
             if (_isReading) ...[
               const Text(
                 'Measure reading by',
@@ -462,6 +673,9 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
               const SizedBox(height: 20),
             ],
 
+            // ==================================================
+            // GOAL VALUE
+            // ==================================================
             TextField(
               controller: _controller,
               autofocus: true,
@@ -479,6 +693,9 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
               ),
             ),
 
+            // ==================================================
+            // EXISTING GOAL
+            // ==================================================
             if (widget.existingGoal != null) ...[
               const SizedBox(height: 12),
 
@@ -494,7 +711,13 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
         ),
       ),
 
+      // ========================================================
+      // ACTIONS
+      // ========================================================
       actions: [
+        // ------------------------------------------------------
+        // REMOVE
+        // ------------------------------------------------------
         if (widget.existingGoal != null)
           TextButton(
             onPressed: (_isDeleting || _isSaving) ? null : _delete,
@@ -507,6 +730,9 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
                 : const Text('REMOVE'),
           ),
 
+        // ------------------------------------------------------
+        // CANCEL
+        // ------------------------------------------------------
         TextButton(
           onPressed: (_isSaving || _isDeleting)
               ? null
@@ -516,6 +742,9 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
           child: const Text('CANCEL'),
         ),
 
+        // ------------------------------------------------------
+        // SAVE
+        // ------------------------------------------------------
         FilledButton(
           onPressed: (_isSaving || _isDeleting) ? null : _save,
           child: _isSaving

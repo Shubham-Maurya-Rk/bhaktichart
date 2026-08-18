@@ -3628,8 +3628,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 PopupMenuItem<String>(
                   value: 'goals',
                   child: ListTile(
-                    leading: Icon(Icons.flag_outlined),
-                    title: Text('Goals'),
+                    leading: Icon(Icons.settings),
+                    title: Text('Settings'),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
