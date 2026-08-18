@@ -18,11 +18,12 @@ class DailyRoutineRepository {
     return DateTime(date.year, date.month, date.day);
   }
 
-  bool _isFuture(DateTime date) {
+  bool _isBeyondTomorrow(DateTime date) {
     final today = _dateOnly(DateTime.now());
+    final tomorrow = today.add(const Duration(days: 1));
     final selected = _dateOnly(date);
 
-    return selected.isAfter(today);
+    return selected.isAfter(tomorrow);
   }
 
   // ============================================================
@@ -80,7 +81,7 @@ class DailyRoutineRepository {
   // ============================================================
 
   Future<int> save(DailyRoutine routine) async {
-    if (_isFuture(routine.date)) {
+    if (_isBeyondTomorrow(routine.date)) {
       throw Exception('You cannot add a routine for a future date.');
     }
 
@@ -119,7 +120,7 @@ class DailyRoutineRepository {
     required DateTime date,
     required DateTime time,
   }) async {
-    if (_isFuture(date)) {
+    if (_isBeyondTomorrow(date)) {
       throw Exception('Future dates are not allowed.');
     }
 
@@ -155,7 +156,7 @@ class DailyRoutineRepository {
     required DateTime date,
     required DateTime time,
   }) async {
-    if (_isFuture(date)) {
+    if (_isBeyondTomorrow(date)) {
       throw Exception('Future dates are not allowed.');
     }
 

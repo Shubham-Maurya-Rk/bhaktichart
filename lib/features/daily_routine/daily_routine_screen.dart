@@ -81,10 +81,20 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
     return _dateOnly(date).isAfter(_today);
   }
 
+  bool _isBeyondTomorrow(DateTime date) {
+    final tomorrow = _dateOnly(_today.add(const Duration(days: 1)));
+    return _dateOnly(date).isAfter(tomorrow);
+  }
+
   bool _isToday(DateTime date) {
     return _dateOnly(date).isAtSameMomentAs(_today);
   }
 
+  bool _isTomorrow(DateTime date) {
+    final tomorrow = _dateOnly(_today.add(const Duration(days: 1)));
+
+    return _dateOnly(date).isAtSameMomentAs(tomorrow);
+  }
   // ============================================================
   // LOAD DATA
   // ============================================================
@@ -172,8 +182,8 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
     // Never allow future dates.
     // ----------------------------------------------------------
 
-    if (_isFuture(newDay)) {
-      _showMessage('Future dates cannot be selected.');
+    if (_isBeyondTomorrow(newDay)) {
+      _showMessage('Only tomorrow can be planned in advance.');
       return;
     }
 
@@ -211,11 +221,6 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
   // ============================================================
 
   Future<void> _selectWakeUpTime() async {
-    if (_isFuture(_selectedDay)) {
-      _showMessage('Future dates cannot be filled.');
-      return;
-    }
-
     final initialTime = _selectedRoutine?.wakeUpTime != null
         ? TimeOfDay(
             hour: _selectedRoutine!.wakeUpTime!.hour,
@@ -239,11 +244,6 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
   // ============================================================
 
   Future<void> _selectSleepTime() async {
-    if (_isFuture(_selectedDay)) {
-      _showMessage('Future dates cannot be filled.');
-      return;
-    }
-
     final initialTime = _selectedRoutine?.sleepTime != null
         ? TimeOfDay(
             hour: _selectedRoutine!.sleepTime!.hour,
@@ -267,11 +267,6 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
   // ============================================================
 
   Future<void> _saveWakeTime(TimeOfDay time) async {
-    if (_isFuture(_selectedDay)) {
-      _showMessage('Future dates cannot be filled.');
-      return;
-    }
-
     setState(() {
       _isSaving = true;
     });
@@ -314,11 +309,6 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
   // ============================================================
 
   Future<void> _saveSleepTime(TimeOfDay time) async {
-    if (_isFuture(_selectedDay)) {
-      _showMessage('Future dates cannot be filled.');
-      return;
-    }
-
     setState(() {
       _isSaving = true;
     });
@@ -723,7 +713,9 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
 
     final canGoPrevious = !_selectedDay.isAtSameMomentAs(DateTime(2020, 1, 1));
 
-    final canGoNext = !_isToday(_selectedDay);
+    final canGoNext = _selectedDay.isBefore(
+      _dateOnly(_today.add(const Duration(days: 1))),
+    );
 
     // ----------------------------------------------------------
     // Swipe area.
@@ -778,10 +770,10 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          isFuture
-                              ? 'Future date'
-                              : _isToday(_selectedDay)
+                          _isToday(_selectedDay)
                               ? 'Today'
+                              : _isTomorrow(_selectedDay)
+                              ? 'Tomorrow'
                               : 'Daily routine',
                           style: TextStyle(
                             color: Theme.of(
@@ -827,7 +819,9 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                           ? '--'
                           : DailyRoutine.formatTime(wake),
                       goal: _goal == null ? null : _goal!.wakeUpTimeText,
-                      onTap: isFuture ? null : _selectWakeUpTime,
+                      onTap: _isBeyondTomorrow(_selectedDay)
+                          ? null
+                          : _selectWakeUpTime,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -841,7 +835,9 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                           ? '--'
                           : DailyRoutine.formatTime(sleep),
                       goal: _goal == null ? null : _goal!.sleepTimeText,
-                      onTap: isFuture ? null : _selectSleepTime,
+                      onTap: _isBeyondTomorrow(_selectedDay)
+                          ? null
+                          : _selectSleepTime,
                     ),
                   ),
                 ],
@@ -891,7 +887,7 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                 _buildDailyPerformance(context, routine!),
               ],
 
-              if (isFuture) ...[
+              if (_isBeyondTomorrow(_selectedDay)) ...[
                 const SizedBox(height: 12),
                 _futureDateWarning(context),
               ],
@@ -2371,7 +2367,7 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                         padding: const EdgeInsets.all(8),
                         child: TableCalendar(
                           firstDay: DateTime(2020, 1, 1),
-                          lastDay: _today,
+                          lastDay: _today.add(const Duration(days: 1)),
                           focusedDay: _focusedDay,
                           selectedDayPredicate: (day) {
                             return _dateOnly(
@@ -2418,8 +2414,10 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                             },
                           ),
                           onDaySelected: (selectedDay, focusedDay) async {
-                            if (_isFuture(selectedDay)) {
-                              _showMessage('Future dates cannot be filled.');
+                            if (_isBeyondTomorrow(selectedDay)) {
+                              _showMessage(
+                                'Only tomorrow can be planned in advance.',
+                              );
                               return;
                             }
 
