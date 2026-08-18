@@ -8,9 +8,6 @@ import '../../models/day_note_model.dart';
 import '../../models/goal_model.dart';
 import '../../models/sadhana_type_model.dart';
 import '../../repositories/sadhana_repository.dart';
-import '../../models/daily_routine.dart';
-import '../../models/daily_routine_goal.dart';
-import '../../repositories/daily_routine_repository.dart';
 
 class DayInsightsScreen extends StatefulWidget {
   const DayInsightsScreen({super.key});
@@ -25,7 +22,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
   // ============================================================
 
   final SadhanaRepository _repository = SadhanaRepository();
-  final DailyRoutineRepository _routineRepository = DailyRoutineRepository();
 
   // ============================================================
   // USER
@@ -63,13 +59,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
   DayNoteModel? _dayNote;
 
   final Map<int, GoalModel?> _goals = {};
-
-  // ============================================================
-  // DAILY ROUTINE
-  // ============================================================
-
-  DailyRoutine? _dailyRoutine;
-  DailyRoutineGoal? _routineGoal;
 
   // ============================================================
   // LOADING
@@ -146,16 +135,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         _sadhanaTypes = types;
       });
 
-      // Load routine goal separately.
-      // If routine data is unavailable, the existing
-      // Day Insights functionality will continue to work.
-      try {
-        _routineGoal = await _routineRepository.getGoal(_userId!);
-      } catch (e) {
-        debugPrint('Could not load routine goal: $e');
-        _routineGoal = null;
-      }
-
       await _loadDayData(_selectedDate);
     } catch (e, stackTrace) {
       debugPrint('Error loading day insights: $e');
@@ -204,9 +183,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
       final monthStart = AppDateUtils.monthStart(date);
       final monthEnd = AppDateUtils.monthEnd(date);
 
-      // ========================================================
+      // ----------------------------------------------------------
       // LOAD ALL SADHANA RECORDS FOR MONTH
-      // ========================================================
+      // ----------------------------------------------------------
 
       final allSadhanaRecords = await _repository.getSadhanaForMonth(
         _userId!,
@@ -214,17 +193,17 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         monthEnd,
       );
 
-      // ========================================================
+      // ----------------------------------------------------------
       // FILTER SELECTED DAY
-      // ========================================================
+      // ----------------------------------------------------------
 
       final daySadhanaRecords = allSadhanaRecords.where((record) {
         return _normalizeDate(record.date) == key;
       }).toList();
 
-      // ========================================================
+      // ----------------------------------------------------------
       // LOAD AARTI
-      // ========================================================
+      // ----------------------------------------------------------
 
       final allAartiRecords = await _repository.getAartiAttendanceForMonth(
         _userId!,
@@ -236,9 +215,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         return _normalizeDate(record.date) == key;
       }).toList();
 
-      // ========================================================
+      // ----------------------------------------------------------
       // LOAD NOTE
-      // ========================================================
+      // ----------------------------------------------------------
 
       final notes = await _repository.getDayNotesForMonth(
         _userId!,
@@ -255,15 +234,15 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         }
       }
 
-      // ========================================================
+      // ----------------------------------------------------------
       // LOAD AARTI TYPES
-      // ========================================================
+      // ----------------------------------------------------------
 
       final aartiTypes = await _repository.getAartiTypes(_userId!);
 
-      // ========================================================
+      // ----------------------------------------------------------
       // LOAD GOALS
-      // ========================================================
+      // ----------------------------------------------------------
 
       final goals = <int, GoalModel?>{};
 
@@ -277,38 +256,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         } catch (e) {
           debugPrint('Could not load goal for ${type.name}: $e');
         }
-      }
-
-      // ========================================================
-      // LOAD DAILY ROUTINE
-      // ========================================================
-      //
-      // THIS WAS MISSING IN THE ORIGINAL CODE.
-      //
-      // Without this call, _dailyRoutine always remained null,
-      // so the Daily Routine card had no actual data to show.
-      //
-      // ========================================================
-
-      DailyRoutine? dailyRoutine;
-
-      try {
-        dailyRoutine = await _routineRepository.getByDate(_userId!, date);
-      } catch (e) {
-        debugPrint('Could not load daily routine for $date: $e');
-        dailyRoutine = null;
-      }
-
-      // ========================================================
-      // LOAD ROUTINE GOAL
-      // ========================================================
-
-      DailyRoutineGoal? routineGoal = _routineGoal;
-
-      try {
-        routineGoal = await _routineRepository.getGoal(_userId!);
-      } catch (e) {
-        debugPrint('Could not load routine goal: $e');
       }
 
       if (!mounted) {
@@ -325,10 +272,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         _dayNote = dayNote;
 
         _aartiTypes = aartiTypes;
-
-        _dailyRoutine = dailyRoutine;
-
-        _routineGoal = routineGoal;
 
         _goals
           ..clear()
@@ -367,11 +310,12 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
 
     final date = todayDate.add(Duration(days: difference));
 
-    // ========================================================
+    // ----------------------------------------------------------
     // DO NOT ALLOW FUTURE DATES
-    // ========================================================
+    // ----------------------------------------------------------
 
     if (_isFutureDate(date)) {
+      // Move back to today's page.
       if (mounted) {
         await _pageController.animateToPage(
           _initialPage,
@@ -409,6 +353,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
       return;
     }
 
+    // Extra safety check.
     if (_isFutureDate(selected)) {
       return;
     }
@@ -581,6 +526,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
           ),
         ],
       ),
+
       body: Column(
         children: [
           // ======================================================
@@ -654,13 +600,16 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+
                     const SizedBox(height: 2),
+
                     Text(
                       DateFormat('d MMMM yyyy').format(_selectedDate),
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+
                     if (_isToday)
                       Text(
                         'Today',
@@ -707,37 +656,30 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ======================================================
+        // ========================================================
         // DAY TYPE
-        // ======================================================
+        // ========================================================
         _buildDayTypeCard(context),
 
         const SizedBox(height: 12),
 
-        // ======================================================
-        // DAILY ROUTINE
-        // ======================================================
-        _buildDailyRoutineCard(context),
-
-        const SizedBox(height: 12),
-
-        // ======================================================
+        // ========================================================
         // SADHANA
-        // ======================================================
+        // ========================================================
         _buildSadhanaSection(context),
 
         const SizedBox(height: 12),
 
-        // ======================================================
+        // ========================================================
         // AARTI
-        // ======================================================
+        // ========================================================
         _buildAartiCard(context),
 
         const SizedBox(height: 12),
 
-        // ======================================================
+        // ========================================================
         // NOTE
-        // ======================================================
+        // ========================================================
         _buildNoteCard(context),
       ],
     );
@@ -794,7 +736,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         child: Row(
           children: [
             Icon(Icons.label_outline, color: theme.colorScheme.primary),
+
             const SizedBox(width: 10),
+
             Expanded(
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -806,18 +750,21 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                         icon: Icons.groups_2,
                         label: 'Sankirtan',
                       ),
+
                     if (isEkadashi)
                       _buildDayTypeBadge(
                         context,
                         icon: Icons.brightness_2,
                         label: 'Ekadashi',
                       ),
+
                     if (isFestival)
                       _buildDayTypeBadge(
                         context,
                         icon: Icons.celebration,
                         label: 'Festival',
                       ),
+
                     if (isImportant)
                       _buildDayTypeBadge(
                         context,
@@ -867,260 +814,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         ],
       ),
     );
-  }
-
-  // ============================================================
-  // DAILY ROUTINE CARD
-  // ============================================================
-
-  Widget _buildDailyRoutineCard(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final routine = _dailyRoutine;
-
-    final wake = routine?.wakeUpTime;
-    final sleep = routine?.sleepTime;
-    final duration = routine?.sleepDuration;
-
-    final wakeGoal = _routineGoal?.wakeUpTimeText;
-
-    final sleepGoal = _routineGoal?.sleepTimeText;
-
-    final hasRoutineData = wake != null || sleep != null || duration != null;
-
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ==================================================
-            // HEADER
-            // ==================================================
-            Row(
-              children: [
-                Icon(
-                  Icons.schedule_rounded,
-                  size: 21,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Daily Routine',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // ==================================================
-            // ROUTINE DATA
-            // ==================================================
-            if (!hasRoutineData)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline_rounded,
-                      size: 18,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'No routine recorded for this day.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildRoutineTimeCard(
-                      context,
-                      icon: Icons.wb_sunny_rounded,
-                      iconColor: Colors.orange,
-                      title: 'Wake up',
-                      value: wake == null
-                          ? '--'
-                          : DailyRoutine.formatTime(wake),
-                      goal: wakeGoal,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildRoutineTimeCard(
-                      context,
-                      icon: Icons.nightlight_round,
-                      iconColor: Colors.indigo,
-                      title: 'Sleep',
-                      value: sleep == null
-                          ? '--'
-                          : DailyRoutine.formatTime(sleep),
-                      goal: sleepGoal,
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 10),
-
-              // ==================================================
-              // SLEEP DURATION
-              // ==================================================
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  color: theme.colorScheme.primary.withOpacity(0.07),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.bedtime_rounded,
-                      size: 20,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: 9),
-                    Expanded(
-                      child: Text(
-                        'Sleep duration',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      duration == null
-                          ? '--'
-                          : _formatRoutineDuration(duration),
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ============================================================
-  // ROUTINE TIME DISPLAY
-  // ============================================================
-
-  Widget _buildRoutineTimeCard(
-    BuildContext context, {
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String value,
-    required String? goal,
-  }) {
-    final theme = Theme.of(context);
-
-    final hasValue = value != '--';
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(15),
-        color: theme.colorScheme.surface,
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: iconColor, size: 20),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  title,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 9),
-
-          Text(
-            value,
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: hasValue
-                  ? theme.colorScheme.onSurface
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-
-          if (goal != null) ...[
-            const SizedBox(height: 3),
-            Text(
-              'Goal: $goal',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // FORMAT ROUTINE DURATION
-  // ============================================================
-
-  String _formatRoutineDuration(Duration duration) {
-    final hours = duration.inHours;
-
-    final minutes = duration.inMinutes.remainder(60);
-
-    if (hours == 0) {
-      return '${minutes}m';
-    }
-
-    if (minutes == 0) {
-      return '${hours}h';
-    }
-
-    return '${hours}h ${minutes}m';
   }
 
   // ============================================================
@@ -1197,9 +890,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
         padding: const EdgeInsets.all(14),
         child: Column(
           children: [
-            // ==================================================
+            // ----------------------------------------------------
             // TOP
-            // ==================================================
+            // ----------------------------------------------------
             Row(
               children: [
                 Text(type.icon ?? '🙏', style: const TextStyle(fontSize: 26)),
@@ -1216,7 +909,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+
                       const SizedBox(height: 2),
+
                       Text(
                         unit,
                         style: theme.textTheme.bodySmall?.copyWith(
@@ -1239,9 +934,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
               ],
             ),
 
-            // ==================================================
+            // ----------------------------------------------------
             // GOAL
-            // ==================================================
+            // ----------------------------------------------------
             if (applicableGoal) ...[
               const SizedBox(height: 12),
 
@@ -1294,7 +989,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                       size: 16,
                       color: theme.colorScheme.primary,
                     ),
+
                     const SizedBox(width: 5),
+
                     Text(
                       'Daily goal completed 🎉',
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1307,9 +1004,9 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
               ],
             ],
 
-            // ==================================================
+            // ----------------------------------------------------
             // UNIT MISMATCH
-            // ==================================================
+            // ----------------------------------------------------
             if (hasGoal && !unitMatches) ...[
               const SizedBox(height: 8),
 
@@ -1499,6 +1196,7 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
 
                 if (note?.isStarred == true) ...[
                   const SizedBox(width: 8),
+
                   const Icon(Icons.star, size: 18, color: Colors.amber),
                 ],
               ],

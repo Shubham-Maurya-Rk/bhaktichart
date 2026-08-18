@@ -1,4 +1,5 @@
 import 'package:bhaktichart/core/utils/date_utils.dart';
+import 'package:bhaktichart/features/daily_diary/daily_diary_screen.dart';
 import 'package:bhaktichart/features/goals/goals_screen.dart';
 import 'package:bhaktichart/features/daily_routine/daily_routine_screen.dart';
 import 'package:bhaktichart/features/insights/monthly_insights_screen.dart';
@@ -2216,8 +2217,6 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
 
-    noteController.dispose();
-
     await _loadMonthlyData();
   }
   // ============================================================
@@ -3512,6 +3511,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   );
                   break;
+                // --------------------------------------------------------
+                // DAILY DIARY
+                // --------------------------------------------------------
+                case 'daily_diary':
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DailyDiaryScreen()),
+                  );
+                  break;
 
                 // --------------------------------------------------------
                 // DAY INSIGHTS
@@ -3555,6 +3563,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
             itemBuilder: (context) {
               return const [
+                // ========================================================
+                // DAILY DIARY
+                // ========================================================
+                PopupMenuItem<String>(
+                  value: 'daily_diary',
+                  child: ListTile(
+                    leading: const Icon(Icons.menu_book_outlined),
+                    title: const Text('Daily Diary'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
                 // ========================================================
                 // SADHANA REMINDERS
                 // ========================================================
