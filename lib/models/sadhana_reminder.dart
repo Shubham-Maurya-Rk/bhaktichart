@@ -9,6 +9,7 @@ class SadhanaReminder {
   final int minute;
   final List<int> weekdays;
   final bool enabled;
+  final String? customMessage;
 
   const SadhanaReminder({
     required this.id,
@@ -19,6 +20,7 @@ class SadhanaReminder {
     required this.minute,
     required this.weekdays,
     this.enabled = true,
+    this.customMessage,
   });
 
   SadhanaReminder copyWith({
@@ -30,6 +32,7 @@ class SadhanaReminder {
     int? minute,
     List<int>? weekdays,
     bool? enabled,
+    String? customMessage,
   }) {
     return SadhanaReminder(
       id: id ?? this.id,
@@ -40,19 +43,21 @@ class SadhanaReminder {
       minute: minute ?? this.minute,
       weekdays: weekdays ?? List<int>.from(this.weekdays),
       enabled: enabled ?? this.enabled,
+      customMessage: customMessage ?? this.customMessage,
     );
   }
 
   Map<String, dynamic> toMap() => {
-        'id': id,
-        'sadhanaTypeId': sadhanaTypeId,
-        'title': title,
-        'icon': icon,
-        'hour': hour,
-        'minute': minute,
-        'weekdays': weekdays,
-        'enabled': enabled,
-      };
+    'id': id,
+    'sadhanaTypeId': sadhanaTypeId,
+    'title': title,
+    'icon': icon,
+    'hour': hour,
+    'minute': minute,
+    'weekdays': weekdays,
+    'enabled': enabled,
+    'customMessage': customMessage,
+  };
 
   factory SadhanaReminder.fromMap(Map<String, dynamic> map) {
     return SadhanaReminder(
@@ -66,6 +71,7 @@ class SadhanaReminder {
           .map((e) => (e as num).toInt())
           .toList(),
       enabled: map['enabled'] as bool? ?? true,
+      customMessage: map['customMessage'] as String?,
     );
   }
 

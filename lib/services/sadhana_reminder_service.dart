@@ -144,10 +144,17 @@ class SadhanaReminderService {
           minute: reminder.minute,
         );
 
+        // Fallback to default message if custom message is empty or null
+        final notificationBody =
+            (reminder.customMessage != null &&
+                reminder.customMessage!.trim().isNotEmpty)
+            ? reminder.customMessage!.trim()
+            : 'Time for your Sadhana 🙏';
+
         await _notifications.zonedSchedule(
           id: notificationId,
           title: '${reminder.icon} ${reminder.title}',
-          body: 'Time for your Sadhana 🙏',
+          body: notificationBody,
           scheduledDate: scheduledDate,
           notificationDetails: const NotificationDetails(
             android: AndroidNotificationDetails(
@@ -169,7 +176,6 @@ class SadhanaReminderService {
   }
 
   int _notificationId(int reminderId, int weekday) {
-    // Keep the generated ID comfortably inside Android's signed int range.
     return (reminderId % 100000000) * 10 + weekday;
   }
 

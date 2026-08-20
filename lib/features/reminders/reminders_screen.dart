@@ -49,9 +49,9 @@ class _RemindersScreenState extends State<RemindersScreen> {
         _loading = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not load reminders: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not load reminders: $e')));
     }
   }
 
@@ -69,17 +69,17 @@ class _RemindersScreenState extends State<RemindersScreen> {
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Permission request failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Permission request failed: $e')));
     }
   }
 
   Future<void> _addReminder() async {
     if (_sadhanaTypes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No Sadhana types found.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No Sadhana types found.')));
       return;
     }
 
@@ -90,9 +90,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
     await _showReminderEditor(existing: reminder);
   }
 
-  Future<void> _showReminderEditor({
-    SadhanaReminder? existing,
-  }) async {
+  Future<void> _showReminderEditor({SadhanaReminder? existing}) async {
     SadhanaTypeModel selectedType;
 
     if (existing != null) {
@@ -111,6 +109,10 @@ class _RemindersScreenState extends State<RemindersScreen> {
     final selectedWeekdays = <int>{
       ...(existing?.weekdays ?? <int>[1, 2, 3, 4, 5, 6, 7]),
     };
+
+    final customMessageController = TextEditingController(
+      text: existing?.customMessage ?? '',
+    );
 
     final formKey = GlobalKey<FormState>();
 
@@ -139,9 +141,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                           existing == null
                               ? 'Add Sadhana Reminder'
                               : 'Edit Sadhana Reminder',
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineSmall
+                          style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 20),
@@ -186,6 +186,20 @@ class _RemindersScreenState extends State<RemindersScreen> {
 
                         const SizedBox(height: 16),
 
+                        TextFormField(
+                          controller: customMessageController,
+                          decoration: const InputDecoration(
+                            labelText: 'Custom Notification Text',
+                            hintText: 'e.g., Time for your daily Sadhana 🙏',
+                            prefixIcon: Icon(Icons.message_outlined),
+                            border: OutlineInputBorder(),
+                            helperText:
+                                'Leave empty for default: "Time for your Sadhana 🙏"',
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+
                         Card(
                           child: ListTile(
                             leading: const Icon(Icons.access_time),
@@ -223,32 +237,34 @@ class _RemindersScreenState extends State<RemindersScreen> {
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
-                          children: const [
-                            _DayChipData(1, 'Mon'),
-                            _DayChipData(2, 'Tue'),
-                            _DayChipData(3, 'Wed'),
-                            _DayChipData(4, 'Thu'),
-                            _DayChipData(5, 'Fri'),
-                            _DayChipData(6, 'Sat'),
-                            _DayChipData(7, 'Sun'),
-                          ].map((day) {
-                            final selected =
-                                selectedWeekdays.contains(day.day);
+                          children:
+                              const [
+                                _DayChipData(1, 'Mon'),
+                                _DayChipData(2, 'Tue'),
+                                _DayChipData(3, 'Wed'),
+                                _DayChipData(4, 'Thu'),
+                                _DayChipData(5, 'Fri'),
+                                _DayChipData(6, 'Sat'),
+                                _DayChipData(7, 'Sun'),
+                              ].map((day) {
+                                final selected = selectedWeekdays.contains(
+                                  day.day,
+                                );
 
-                            return FilterChip(
-                              label: Text(day.label),
-                              selected: selected,
-                              onSelected: (value) {
-                                setSheetState(() {
-                                  if (value) {
-                                    selectedWeekdays.add(day.day);
-                                  } else {
-                                    selectedWeekdays.remove(day.day);
-                                  }
-                                });
-                              },
-                            );
-                          }).toList(),
+                                return FilterChip(
+                                  label: Text(day.label),
+                                  selected: selected,
+                                  onSelected: (value) {
+                                    setSheetState(() {
+                                      if (value) {
+                                        selectedWeekdays.add(day.day);
+                                      } else {
+                                        selectedWeekdays.remove(day.day);
+                                      }
+                                    });
+                                  },
+                                );
+                              }).toList(),
                         ),
 
                         const SizedBox(height: 24),
@@ -262,19 +278,21 @@ class _RemindersScreenState extends State<RemindersScreen> {
                               if (selectedWeekdays.isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text(
-                                      'Select at least one day.',
-                                    ),
+                                    content: Text('Select at least one day.'),
                                   ),
                                 );
                                 return;
                               }
 
-                              final reminders =
-                                  await _reminderService.getReminders();
+                              final reminders = await _reminderService
+                                  .getReminders();
+
+                              final customMsg = customMessageController.text
+                                  .trim();
 
                               final reminder = SadhanaReminder(
-                                id: existing?.id ??
+                                id:
+                                    existing?.id ??
                                     _reminderService.createId(reminders),
                                 sadhanaTypeId: selectedType.id!,
                                 title: selectedType.name,
@@ -282,6 +300,9 @@ class _RemindersScreenState extends State<RemindersScreen> {
                                 hour: selectedTime.hour,
                                 minute: selectedTime.minute,
                                 weekdays: selectedWeekdays.toList()..sort(),
+                                customMessage: customMsg.isEmpty
+                                    ? null
+                                    : customMsg,
                                 enabled: existing?.enabled ?? true,
                               );
 
@@ -322,9 +343,9 @@ class _RemindersScreenState extends State<RemindersScreen> {
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not update reminder: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not update reminder: $e')));
     }
   }
 
@@ -376,9 +397,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
   String _formatTime(SadhanaReminder reminder) {
     return DateFormat(
       'h:mm a',
-    ).format(
-      DateTime(2000, 1, 1, reminder.hour, reminder.minute),
-    );
+    ).format(DateTime(2000, 1, 1, reminder.hour, reminder.minute));
   }
 
   @override
@@ -405,52 +424,71 @@ class _RemindersScreenState extends State<RemindersScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _reminders.isEmpty
-              ? _buildEmptyState(context)
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                    itemCount: _reminders.length,
-                    itemBuilder: (context, index) {
-                      final reminder = _reminders[index];
+          ? _buildEmptyState(context)
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                itemCount: _reminders.length,
+                itemBuilder: (context, index) {
+                  final reminder = _reminders[index];
+                  final displayMessage =
+                      (reminder.customMessage != null &&
+                          reminder.customMessage!.trim().isNotEmpty)
+                      ? reminder.customMessage!
+                      : 'Time for your Sadhana 🙏';
 
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          leading: CircleAvatar(
-                            child: Text(
-                              reminder.icon,
-                              style: const TextStyle(fontSize: 22),
-                            ),
-                          ),
-                          title: Text(
-                            reminder.title,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 5),
-                            child: Text(
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      leading: CircleAvatar(
+                        child: Text(
+                          reminder.icon,
+                          style: const TextStyle(fontSize: 22),
+                        ),
+                      ),
+                      title: Text(
+                        reminder.title,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 5),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
                               '${_formatTime(reminder)}  •  '
                               '${_formatDays(reminder.weekdays)}',
                             ),
-                          ),
-                          trailing: Switch(
-                            value: reminder.enabled,
-                            onChanged: (value) => _toggle(reminder, value),
-                          ),
-                          onTap: () => _editReminder(reminder),
-                          onLongPress: () => _delete(reminder),
+                            const SizedBox(height: 2),
+                            Text(
+                              '"$displayMessage"',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
                         ),
-                      );
-                    },
-                  ),
-                ),
+                      ),
+                      trailing: Switch(
+                        value: reminder.enabled,
+                        onChanged: (value) => _toggle(reminder, value),
+                      ),
+                      onTap: () => _editReminder(reminder),
+                      onLongPress: () => _delete(reminder),
+                    ),
+                  );
+                },
+              ),
+            ),
     );
   }
 

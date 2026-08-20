@@ -15,6 +15,8 @@ import 'package:bhaktichart/models/sadhana_type_model.dart';
 import 'package:bhaktichart/repositories/sadhana_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:bhaktichart/features/reminders/reminders_screen.dart';
 import 'package:bhaktichart/features/statistics/statistics_screen.dart';
@@ -3413,6 +3415,186 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // ------------------------------------------------------------------
+  // PENDING ROUNDS DIALOG
+  // ------------------------------------------------------------------
+  Future<void> _showPendingRoundsDialog(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentRounds = prefs.getInt('pending_rounds') ?? 0;
+    final controller = TextEditingController(text: currentRounds.toString());
+
+    if (!context.mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Update Pending Rounds'),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Pending Rounds',
+              hintText: 'Enter total pending rounds',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('CANCEL'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final newRounds = int.tryParse(controller.text) ?? 0;
+                await prefs.setInt('pending_rounds', newRounds);
+
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                setState(() {});
+              },
+              child: const Text('SAVE'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // YOUTUBE LINKS MANAGER DIALOG
+  // ------------------------------------------------------------------
+  Future<void> _showManageYouTubeLinksDialog(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String> links = prefs.getStringList('youtube_links') ?? [];
+
+    final titleController = TextEditingController();
+    final urlController = TextEditingController();
+
+    if (!context.mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Manage YouTube Links'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (links.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Text('No YouTube links added yet.'),
+                        )
+                      else
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: links.length,
+                          itemBuilder: (context, index) {
+                            final parts = links[index].split('|');
+                            final title = parts[0];
+                            final url = parts.length > 1 ? parts[1] : parts[0];
+
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(
+                                Icons.play_circle_fill,
+                                color: Colors.red,
+                              ),
+                              title: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                url,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                ),
+                                onPressed: () async {
+                                  links.removeAt(index);
+                                  await prefs.setStringList(
+                                    'youtube_links',
+                                    links,
+                                  );
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                      const Divider(),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Add New Link',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: titleController,
+                        decoration: const InputDecoration(
+                          labelText: 'Name (e.g. SB Classes)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: urlController,
+                        decoration: const InputDecoration(
+                          labelText: 'YouTube URL',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('CLOSE'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final title = titleController.text.trim();
+                    final url = urlController.text.trim();
+
+                    if (url.isNotEmpty) {
+                      final entry = title.isNotEmpty ? '$title|$url' : url;
+                      links.add(entry);
+                      await prefs.setStringList('youtube_links', links);
+
+                      titleController.clear();
+                      urlController.clear();
+
+                      setDialogState(() {});
+                      setState(() {});
+                    }
+                  },
+                  child: const Text('ADD'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   // ============================================================
   // BUILD
   // ============================================================
@@ -3426,9 +3608,371 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return Scaffold(
-      // ========================================================
+      // ============================================================
+      // NAVIGATION DRAWER (HAMBURGER MENU)
+      // ============================================================
+      endDrawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    'BhaktiChart',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  if (_name.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Hare Krishna, $_name 🙏',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            // ============================================================
+            // HORIZONTAL LINKS ROW (VEDABASE + YOUTUBE LINKS + ADD BUTTON)
+            // ============================================================
+            SizedBox(
+              height: 48,
+              child: FutureBuilder<List<String>>(
+                future: SharedPreferences.getInstance().then(
+                  (prefs) => prefs.getStringList('youtube_links') ?? [],
+                ),
+                builder: (context, snapshot) {
+                  final ytLinks = snapshot.data ?? [];
+
+                  return ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    children: [
+                      // Vedabase Link Badge
+                      ActionChip(
+                        avatar: Container(
+                          width: 18,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            color:
+                                Colors.amber, // Golden/orange book cover tone
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Center(
+                            child: Text(
+                              'V',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                                fontFamily: 'Roboto',
+                                height: 1.0,
+                              ),
+                            ),
+                          ),
+                        ),
+                        label: const Text('Vedabase'),
+                        backgroundColor: theme.colorScheme.surface,
+                        side: BorderSide(
+                          color: theme.colorScheme.outlineVariant,
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(context);
+                          final uri = Uri.parse('https://vedabase.io/');
+
+                          try {
+                            final launched = await launchUrl(
+                              uri,
+                              mode: LaunchMode.externalApplication,
+                            );
+                            if (!launched && context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Could not open browser link'),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            debugPrint('Error launching URL: $e');
+                          }
+                        },
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Stored YouTube Link Badges
+                      ...ytLinks.map((entry) {
+                        final parts = entry.split('|');
+                        final title = parts[0];
+                        final url = parts.length > 1 ? parts[1] : parts[0];
+
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8.0),
+                          child: ActionChip(
+                            avatar: Container(
+                              width: 20,
+                              height: 14,
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Center(
+                                child: Icon(
+                                  Icons.play_arrow_rounded,
+                                  color: Colors.white,
+                                  size: 12,
+                                ),
+                              ),
+                            ),
+                            label: Text(title),
+                            backgroundColor: theme.colorScheme.surface,
+                            side: BorderSide(
+                              color: theme.colorScheme.outlineVariant,
+                            ),
+                            onPressed: () async {
+                              Navigator.pop(context);
+                              final uri = Uri.parse(url);
+                              if (await canLaunchUrl(uri)) {
+                                await launchUrl(
+                                  uri,
+                                  mode: LaunchMode.externalApplication,
+                                );
+                              }
+                            },
+                          ),
+                        );
+                      }),
+
+                      // Add Link Badge (At the end of the horizontal row)
+                      ActionChip(
+                        avatar: Icon(
+                          Icons.add,
+                          color: theme.colorScheme.primary,
+                          size: 18,
+                        ),
+                        label: Text(
+                          'Add Link',
+                          style: TextStyle(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        backgroundColor: theme.colorScheme.primaryContainer
+                            .withOpacity(0.4),
+                        side: BorderSide(
+                          color: theme.colorScheme.primary.withOpacity(0.5),
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(context);
+                          await _showManageYouTubeLinksDialog(context);
+                        },
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12.0,
+                vertical: 4.0,
+              ),
+              child: FutureBuilder<int>(
+                future: SharedPreferences.getInstance().then(
+                  (prefs) => prefs.getInt('pending_rounds') ?? 0,
+                ),
+                builder: (context, snapshot) {
+                  final rounds = snapshot.data ?? 0;
+                  final hasPending = rounds > 0;
+
+                  return Material(
+                    color: hasPending
+                        ? theme.colorScheme.errorContainer.withOpacity(0.7)
+                        : theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                    child: ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      leading: Icon(
+                        Icons.autorenew,
+                        color: hasPending
+                            ? theme.colorScheme.onErrorContainer
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                      title: Text(
+                        'Pending Rounds',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: hasPending
+                              ? theme.colorScheme.onErrorContainer
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '$rounds rounds',
+                        style: TextStyle(
+                          color: hasPending
+                              ? theme.colorScheme.onErrorContainer
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      trailing: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: hasPending
+                              ? theme.colorScheme.error
+                              : theme.colorScheme.outline,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          '$rounds',
+                          style: TextStyle(
+                            color: hasPending
+                                ? theme.colorScheme.errorContainer.withOpacity(
+                                    0.7,
+                                  )
+                                : null,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await _showPendingRoundsDialog(context);
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            const Divider(),
+            // Daily Routine
+            ListTile(
+              leading: const Icon(Icons.schedule_rounded),
+              title: const Text('Daily Routine'),
+              onTap: () async {
+                Navigator.pop(context); // Close Drawer
+                if (_userId == null) return;
+
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => DailyRoutineScreen(userId: _userId!),
+                  ),
+                );
+              },
+            ),
+
+            // Daily Diary
+            ListTile(
+              leading: const Icon(Icons.menu_book_outlined),
+              title: const Text('Daily Diary'),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DailyDiaryScreen()),
+                );
+              },
+            ),
+
+            // Sadhana Reminders
+            ListTile(
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: const Text('Sadhana Reminders'),
+              onTap: () {
+                Navigator.pop(context);
+                _openReminders();
+              },
+            ),
+
+            const Divider(),
+
+            // Statistics
+            ListTile(
+              leading: const Icon(Icons.bar_chart),
+              title: const Text('Statistics'),
+              onTap: () async {
+                Navigator.pop(context);
+                if (_userId == null) return;
+
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => StatisticsScreen(userId: _userId!),
+                  ),
+                );
+              },
+            ),
+
+            // Day Insights
+            ListTile(
+              leading: const Icon(Icons.today_outlined),
+              title: const Text('Day Insights'),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DayInsightsScreen()),
+                );
+              },
+            ),
+
+            // Monthly Insights
+            ListTile(
+              leading: const Icon(Icons.insights_outlined),
+              title: const Text('Monthly Insights'),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const MonthlyInsightsScreen(),
+                  ),
+                );
+              },
+            ),
+
+            const Divider(),
+
+            // Settings / Goals
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text('Settings'),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const GoalsScreen()),
+                );
+
+                if (mounted) {
+                  await _reloadGoals();
+                  await _loadHomeData();
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+      // ============================================================
       // APP BAR
-      // ========================================================
+      // ============================================================
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3437,12 +3981,10 @@ class _HomeScreenState extends State<HomeScreen> {
               'BhaktiChart',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
-
             if (_name.isNotEmpty)
               Text('Hare Krishna, $_name 🙏', style: theme.textTheme.bodySmall),
           ],
         ),
-
         actions: [
           // ============================================================
           // LEARNING TRACKER - STANDALONE
@@ -3451,9 +3993,7 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: 'Learning Tracker',
             icon: const Icon(Icons.auto_stories_rounded),
             onPressed: () async {
-              if (_userId == null) {
-                return;
-              }
+              if (_userId == null) return;
 
               await Navigator.push(
                 context,
@@ -3477,195 +4017,22 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-
           // ============================================================
-          // MORE MENU
+          // HAMBURGER MENU AT THE RIGHT END
           // ============================================================
-          PopupMenuButton<String>(
-            tooltip: 'More',
-            icon: const Icon(Icons.more_vert),
-            onSelected: (value) async {
-              switch (value) {
-                // --------------------------------------------------------
-                // DAILY ROUTINE
-                // --------------------------------------------------------
-                case 'daily_routine':
-                  if (_userId == null) {
-                    return;
-                  }
-
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => DailyRoutineScreen(userId: _userId!),
-                    ),
-                  );
-                  break;
-
-                // --------------------------------------------------------
-                // SADHANA REMINDERS
-                // --------------------------------------------------------
-                case 'reminders':
-                  _openReminders();
-                  break;
-
-                // --------------------------------------------------------
-                // STATISTICS
-                // --------------------------------------------------------
-                case 'statistics':
-                  if (_userId == null) {
-                    return;
-                  }
-
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => StatisticsScreen(userId: _userId!),
-                    ),
-                  );
-                  break;
-
-                // --------------------------------------------------------
-                // DAILY DIARY
-                // --------------------------------------------------------
-                case 'daily_diary':
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DailyDiaryScreen()),
-                  );
-                  break;
-
-                // --------------------------------------------------------
-                // DAY INSIGHTS
-                // --------------------------------------------------------
-                case 'day_insights':
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const DayInsightsScreen(),
-                    ),
-                  );
-                  break;
-
-                // --------------------------------------------------------
-                // MONTHLY INSIGHTS
-                // --------------------------------------------------------
-                case 'monthly_insights':
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const MonthlyInsightsScreen(),
-                    ),
-                  );
-                  break;
-
-                // --------------------------------------------------------
-                // GOALS / SETTINGS
-                // --------------------------------------------------------
-                case 'goals':
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const GoalsScreen()),
-                  );
-
-                  if (mounted) {
-                    await _reloadGoals();
-                    await _loadHomeData();
-                  }
-                  break;
-              }
-            },
-            itemBuilder: (context) {
-              return const [
-                // ========================================================
-                // DAILY ROUTINE
-                // ========================================================
-                PopupMenuItem<String>(
-                  value: 'daily_routine',
-                  child: ListTile(
-                    leading: Icon(Icons.schedule_rounded),
-                    title: Text('Daily Routine'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-
-                // ========================================================
-                // DAILY DIARY
-                // ========================================================
-                PopupMenuItem<String>(
-                  value: 'daily_diary',
-                  child: ListTile(
-                    leading: Icon(Icons.menu_book_outlined),
-                    title: Text('Daily Diary'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-
-                // ========================================================
-                // SADHANA REMINDERS
-                // ========================================================
-                PopupMenuItem<String>(
-                  value: 'reminders',
-                  child: ListTile(
-                    leading: Icon(Icons.notifications_active_outlined),
-                    title: Text('Sadhana Reminders'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-
-                // ========================================================
-                // STATISTICS
-                // ========================================================
-                PopupMenuItem<String>(
-                  value: 'statistics',
-                  child: ListTile(
-                    leading: Icon(Icons.bar_chart),
-                    title: Text('Statistics'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-
-                // ========================================================
-                // DAY INSIGHTS
-                // ========================================================
-                PopupMenuItem<String>(
-                  value: 'day_insights',
-                  child: ListTile(
-                    leading: Icon(Icons.today_outlined),
-                    title: Text('Day Insights'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-
-                // ========================================================
-                // MONTHLY INSIGHTS
-                // ========================================================
-                PopupMenuItem<String>(
-                  value: 'monthly_insights',
-                  child: ListTile(
-                    leading: Icon(Icons.insights_outlined),
-                    title: Text('Monthly Insights'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-
-                // ========================================================
-                // GOALS / SETTINGS
-                // ========================================================
-                PopupMenuItem<String>(
-                  value: 'goals',
-                  child: ListTile(
-                    leading: Icon(Icons.settings),
-                    title: Text('Settings'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ];
+          Builder(
+            builder: (context) {
+              return IconButton(
+                icon: const Icon(Icons.segment),
+                tooltip: 'Menu',
+                onPressed: () {
+                  Scaffold.of(context).openEndDrawer();
+                },
+              );
             },
           ),
         ],
       ),
-
       // ========================================================
       // FIXED BOTTOM BUTTON
       // ========================================================
