@@ -3464,9 +3464,9 @@ class _HomeScreenState extends State<HomeScreen> {
   // ------------------------------------------------------------------
   // YOUTUBE LINKS MANAGER DIALOG
   // ------------------------------------------------------------------
-  Future<void> _showManageYouTubeLinksDialog(BuildContext context) async {
+  Future<void> _showManageLinksDialog(BuildContext context) async {
     final prefs = await SharedPreferences.getInstance();
-    List<String> links = prefs.getStringList('youtube_links') ?? [];
+    List<String> links = prefs.getStringList('saved_links') ?? [];
 
     final titleController = TextEditingController();
     final urlController = TextEditingController();
@@ -3479,7 +3479,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Manage YouTube Links'),
+              title: const Text('Manage Saved Links'),
               content: SizedBox(
                 width: double.maxFinite,
                 child: SingleChildScrollView(
@@ -3489,23 +3489,44 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (links.isEmpty)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 12),
-                          child: Text('No YouTube links added yet.'),
+                          child: Text('No links added yet.'),
                         )
                       else
-                        ListView.builder(
+                        ReorderableListView.builder(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           itemCount: links.length,
+                          onReorder: (int oldIndex, int newIndex) async {
+                            if (oldIndex < newIndex) {
+                              newIndex -= 1;
+                            }
+                            final String item = links.removeAt(oldIndex);
+                            links.insert(newIndex, item);
+
+                            await prefs.setStringList('saved_links', links);
+                            setDialogState(() {});
+                            setState(() {});
+                          },
                           itemBuilder: (context, index) {
                             final parts = links[index].split('|');
                             final title = parts[0];
                             final url = parts.length > 1 ? parts[1] : parts[0];
 
                             return ListTile(
+                              key: ValueKey(links[index]),
                               contentPadding: EdgeInsets.zero,
-                              leading: const Icon(
-                                Icons.play_circle_fill,
-                                color: Colors.red,
+                              leading: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.drag_handle,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.outline,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _getLinkIcon(url),
+                                ],
                               ),
                               title: Text(
                                 title,
@@ -3525,7 +3546,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 onPressed: () async {
                                   links.removeAt(index);
                                   await prefs.setStringList(
-                                    'youtube_links',
+                                    'saved_links',
                                     links,
                                   );
                                   setDialogState(() {});
@@ -3547,7 +3568,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       TextField(
                         controller: titleController,
                         decoration: const InputDecoration(
-                          labelText: 'Name (e.g. SB Classes)',
+                          labelText: 'Name (e.g. SB Classes / Resource Doc)',
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -3555,7 +3576,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       TextField(
                         controller: urlController,
                         decoration: const InputDecoration(
-                          labelText: 'YouTube URL',
+                          labelText: 'URL (e.g. https://...)',
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -3571,12 +3592,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 FilledButton(
                   onPressed: () async {
                     final title = titleController.text.trim();
-                    final url = urlController.text.trim();
+                    var url = urlController.text.trim();
 
                     if (url.isNotEmpty) {
+                      // Prepend https:// if user didn't include protocol
+                      if (!url.startsWith('http://') &&
+                          !url.startsWith('https://')) {
+                        url = 'https://$url';
+                      }
+
                       final entry = title.isNotEmpty ? '$title|$url' : url;
                       links.add(entry);
-                      await prefs.setStringList('youtube_links', links);
+                      await prefs.setStringList('saved_links', links);
 
                       titleController.clear();
                       urlController.clear();
@@ -3593,6 +3620,44 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  Widget _getChipAvatar(String url) {
+    final lowerUrl = url.toLowerCase();
+
+    if (lowerUrl.contains('youtube.com') || lowerUrl.contains('youtu.be')) {
+      return Container(
+        width: 20,
+        height: 14,
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: const Center(
+          child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 12),
+        ),
+      );
+    }
+
+    // Standard Web Icon Avatar
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        color: Colors.blue.shade100,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Icon(Icons.language, color: Colors.blue.shade800, size: 12),
+    );
+  }
+
+  // Helper method to dynamically swap icons based on destination URL
+  Widget _getLinkIcon(String url) {
+    final lowerUrl = url.toLowerCase();
+    if (lowerUrl.contains('youtube.com') || lowerUrl.contains('youtu.be')) {
+      return const Icon(Icons.play_circle_fill, color: Colors.red);
+    }
+    return const Icon(Icons.language, color: Colors.blue);
   }
 
   // ============================================================
@@ -3649,11 +3714,15 @@ class _HomeScreenState extends State<HomeScreen> {
             SizedBox(
               height: 48,
               child: FutureBuilder<List<String>>(
-                future: SharedPreferences.getInstance().then(
-                  (prefs) => prefs.getStringList('youtube_links') ?? [],
-                ),
+                future: SharedPreferences.getInstance().then((prefs) {
+                  // Fetches saved_links, with fallback to youtube_links for backward compatibility
+                  return prefs.getStringList('saved_links') ??
+                      prefs.getStringList('youtube_links') ??
+                      [];
+                }),
                 builder: (context, snapshot) {
-                  final ytLinks = snapshot.data ?? [];
+                  final savedLinks = snapshot.data ?? [];
+                  final theme = Theme.of(context);
 
                   return ListView(
                     scrollDirection: Axis.horizontal,
@@ -3710,8 +3779,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(width: 8),
 
-                      // Stored YouTube Link Badges
-                      ...ytLinks.map((entry) {
+                      // Stored Link Badges (YouTube & General Websites)
+                      ...savedLinks.map((entry) {
                         final parts = entry.split('|');
                         final title = parts[0];
                         final url = parts.length > 1 ? parts[1] : parts[0];
@@ -3719,21 +3788,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         return Padding(
                           padding: const EdgeInsets.only(right: 8.0),
                           child: ActionChip(
-                            avatar: Container(
-                              width: 20,
-                              height: 14,
-                              decoration: BoxDecoration(
-                                color: Colors.red,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Center(
-                                child: Icon(
-                                  Icons.play_arrow_rounded,
-                                  color: Colors.white,
-                                  size: 12,
-                                ),
-                              ),
-                            ),
+                            avatar: _getChipAvatar(url),
                             label: Text(title),
                             backgroundColor: theme.colorScheme.surface,
                             side: BorderSide(
@@ -3774,7 +3829,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         onPressed: () async {
                           Navigator.pop(context);
-                          await _showManageYouTubeLinksDialog(context);
+                          await _showManageLinksDialog(context);
                         },
                       ),
                     ],
