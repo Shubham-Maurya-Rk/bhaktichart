@@ -361,6 +361,80 @@ class DatabaseHelper {
       )
     ''');
 
+    // ============================================================
+    // LEARNING TRACKER
+    // ============================================================
+
+    // --------------------------------------------------
+    // LEARNING BOOKS
+    // --------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE learning_books (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL,
+
+        name TEXT NOT NULL,
+
+        level_count INTEGER NOT NULL DEFAULT 1,
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE,
+
+        UNIQUE (
+          user_id,
+          name
+        )
+      )
+    ''');
+
+    // --------------------------------------------------
+    // LEARNING SHLOKAS
+    // --------------------------------------------------
+
+    await db.execute('''
+      CREATE TABLE learning_shlokas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        user_id INTEGER NOT NULL,
+
+        book_id INTEGER NOT NULL,
+
+        reference TEXT NOT NULL,
+
+        shloka TEXT NOT NULL,
+
+        translation TEXT,
+
+        url TEXT,
+
+        status TEXT NOT NULL DEFAULT 'not_learned',
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES users(id)
+          ON DELETE CASCADE,
+
+        FOREIGN KEY (book_id)
+          REFERENCES learning_books(id)
+          ON DELETE CASCADE,
+
+        UNIQUE (
+          book_id,
+          reference
+        )
+      )
+    ''');
+
     // --------------------------------------------------
     // DEFAULT SADHANA TYPES
     // --------------------------------------------------

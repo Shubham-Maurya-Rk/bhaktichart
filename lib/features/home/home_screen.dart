@@ -5,6 +5,7 @@ import 'package:bhaktichart/features/daily_routine/daily_routine_screen.dart';
 import 'package:bhaktichart/features/insights/monthly_insights_screen.dart';
 import 'package:bhaktichart/features/insights/day_insights_screen.dart';
 import 'package:bhaktichart/features/todo/daily_todo_screen.dart';
+import 'package:bhaktichart/features/learning_tracker/learning_tracker_screen.dart';
 import 'package:bhaktichart/models/aarti_type_model.dart';
 import 'package:bhaktichart/models/daily_aarti_model.dart';
 import 'package:bhaktichart/models/daily_sadhana_model.dart';
@@ -3444,11 +3445,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
         actions: [
           // ============================================================
-          // DAILY ROUTINE - STANDALONE
+          // LEARNING TRACKER - STANDALONE
           // ============================================================
           IconButton(
-            tooltip: 'Daily Routine',
-            icon: const Icon(Icons.schedule_rounded),
+            tooltip: 'Learning Tracker',
+            icon: const Icon(Icons.auto_stories_rounded),
             onPressed: () async {
               if (_userId == null) {
                 return;
@@ -3457,7 +3458,7 @@ class _HomeScreenState extends State<HomeScreen> {
               await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => DailyRoutineScreen(userId: _userId!),
+                  builder: (_) => LearningTrackerScreen(userId: _userId!),
                 ),
               );
             },
@@ -3486,6 +3487,22 @@ class _HomeScreenState extends State<HomeScreen> {
             onSelected: (value) async {
               switch (value) {
                 // --------------------------------------------------------
+                // DAILY ROUTINE
+                // --------------------------------------------------------
+                case 'daily_routine':
+                  if (_userId == null) {
+                    return;
+                  }
+
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DailyRoutineScreen(userId: _userId!),
+                    ),
+                  );
+                  break;
+
+                // --------------------------------------------------------
                 // SADHANA REMINDERS
                 // --------------------------------------------------------
                 case 'reminders':
@@ -3507,6 +3524,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   );
                   break;
+
                 // --------------------------------------------------------
                 // DAILY DIARY
                 // --------------------------------------------------------
@@ -3542,7 +3560,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   break;
 
                 // --------------------------------------------------------
-                // GOALS
+                // GOALS / SETTINGS
                 // --------------------------------------------------------
                 case 'goals':
                   await Navigator.push(
@@ -3552,24 +3570,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   if (mounted) {
                     await _reloadGoals();
+                    await _loadHomeData();
                   }
                   break;
               }
             },
-
             itemBuilder: (context) {
               return const [
+                // ========================================================
+                // DAILY ROUTINE
+                // ========================================================
+                PopupMenuItem<String>(
+                  value: 'daily_routine',
+                  child: ListTile(
+                    leading: Icon(Icons.schedule_rounded),
+                    title: Text('Daily Routine'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+
                 // ========================================================
                 // DAILY DIARY
                 // ========================================================
                 PopupMenuItem<String>(
                   value: 'daily_diary',
                   child: ListTile(
-                    leading: const Icon(Icons.menu_book_outlined),
-                    title: const Text('Daily Diary'),
+                    leading: Icon(Icons.menu_book_outlined),
+                    title: Text('Daily Diary'),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
+
                 // ========================================================
                 // SADHANA REMINDERS
                 // ========================================================
@@ -3619,7 +3650,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
 
                 // ========================================================
-                // GOALS
+                // GOALS / SETTINGS
                 // ========================================================
                 PopupMenuItem<String>(
                   value: 'goals',

@@ -135,6 +135,17 @@ class SadhanaRepository {
 
     return userId;
   }
+
+  Future<int> updateUser(int userId, String name) async {
+    final db = await _db;
+
+    return await db.update(
+      'users',
+      {'name': name.trim()},
+      where: 'id = ?',
+      whereArgs: [userId],
+    );
+  }
   // =====================================================
   // SADHANA TYPES
   // =====================================================

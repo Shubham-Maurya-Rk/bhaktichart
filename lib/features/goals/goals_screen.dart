@@ -24,6 +24,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   // ============================================================
 
   int? _userId;
+  String _userName = '';
 
   // ============================================================
   // SADHANA TYPES
@@ -61,7 +62,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   // ============================================================
-  // LOAD GOALS
+  // LOAD GOALS & USER
   // ============================================================
 
   Future<void> _loadGoals() async {
@@ -90,6 +91,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
       setState(() {
         _userId = user.id;
+        _userName = user.name ?? '';
         _sadhanaTypes = types;
 
         _goals.clear();
@@ -103,6 +105,116 @@ class _GoalsScreenState extends State<GoalsScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  // ============================================================
+  // EDIT USER NAME DIALOG
+  // ============================================================
+
+  Future<void> _openEditNameDialog() async {
+    final controller = TextEditingController(text: _userName);
+    String? errorMessage;
+
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final theme = Theme.of(context);
+
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.person_outline),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Edit Profile Name',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (errorMessage != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        errorMessage!,
+                        style: TextStyle(
+                          color: theme.colorScheme.onErrorContainer,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                  TextField(
+                    controller: controller,
+                    textCapitalization: TextCapitalization.words,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Your Name',
+                      hintText: 'Enter your name',
+                      prefixIcon: Icon(Icons.edit),
+                    ),
+                    onChanged: (_) {
+                      if (errorMessage != null) {
+                        setDialogState(() {
+                          errorMessage = null;
+                        });
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('CANCEL'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final newName = controller.text.trim();
+                    if (newName.isEmpty) {
+                      setDialogState(() {
+                        errorMessage = 'Name cannot be empty';
+                      });
+                      return;
+                    }
+
+                    try {
+                      await _repository.updateUser(_userId!, newName);
+
+                      if (!dialogContext.mounted) return;
+                      Navigator.pop(dialogContext, true);
+                    } catch (e) {
+                      if (!dialogContext.mounted) return;
+                      setDialogState(() {
+                        errorMessage = 'Failed to update name: $e';
+                      });
+                    }
+                  },
+                  child: const Text('SAVE'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (updated == true) {
+      await _loadGoals();
     }
   }
 
@@ -161,10 +273,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
         return;
       }
 
-      // ----------------------------------------------------------
-      // If database was restored, reload goals.
-      // ----------------------------------------------------------
-
       if (restored == true) {
         setState(() {
           _isLoading = true;
@@ -196,12 +304,72 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   // ============================================================
-  // GOAL CARD
+  // USER PROFILE CARD
+  // ============================================================
+
+  Widget _buildUserProfileCard() {
+    final theme = Theme.of(context);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: _openEditNameDialog,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: theme.colorScheme.primaryContainer,
+                child: Text(
+                  _userName.isNotEmpty ? _userName[0].toUpperCase() : '🙏',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _userName.isEmpty ? 'Set Your Name' : _userName,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Tap to edit name',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.edit_outlined),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // GOAL CARD (FIXED RENDERFLEX OVERFLOW)
   // ============================================================
 
   Widget _buildGoalCard(SadhanaTypeModel type) {
     final goal = type.id == null ? null : _goals[type.id!];
-
     final theme = Theme.of(context);
 
     return Card(
@@ -213,9 +381,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              // ==================================================
               // ICON
-              // ==================================================
               Container(
                 width: 52,
                 height: 52,
@@ -233,9 +399,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
               const SizedBox(width: 14),
 
-              // ==================================================
-              // GOAL DETAILS
-              // ==================================================
+              // GOAL DETAILS (Wrapped safely to prevent horizontal overflow)
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,30 +410,34 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         fontSize: 17,
                         fontWeight: FontWeight.bold,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-
                     const SizedBox(height: 4),
-
                     if (goal == null)
                       Text(
                         'No daily goal set',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       )
                     else
                       Text(
                         '${_formatValue(goal.targetValue)} '
                         '${goal.unit ?? ''} / day',
                         style: theme.textTheme.bodyMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                   ],
                 ),
               ),
 
-              // ==================================================
+              const SizedBox(width: 8),
+
               // ACTION ICON
-              // ==================================================
               Icon(
                 goal == null ? Icons.add_circle_outline : Icons.edit_outlined,
               ),
@@ -296,9 +464,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              // ==================================================
-              // ICON
-              // ==================================================
               Container(
                 width: 52,
                 height: 52,
@@ -315,9 +480,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
               const SizedBox(width: 14),
 
-              // ==================================================
-              // TEXT
-              // ==================================================
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -327,15 +489,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-
                     const SizedBox(height: 4),
-
                     Text(
                       'Export your data or restore a previous backup',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -343,9 +507,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
               const SizedBox(width: 8),
 
-              // ==================================================
-              // ACTION
-              // ==================================================
               _isOpeningBackup
                   ? const SizedBox(
                       width: 22,
@@ -371,11 +532,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'My Goals',
+          'Settings',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
-
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
@@ -387,9 +547,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // ==========================================
-                      // HEADER
-                      // ==========================================
+                      _buildUserProfileCard(),
                       const Text(
                         'Daily Sadhana Goals',
                         style: TextStyle(
@@ -397,28 +555,16 @@ class _GoalsScreenState extends State<GoalsScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-
                       const SizedBox(height: 6),
-
                       Text(
                         'Set a simple daily target for your spiritual practice.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-
                       const SizedBox(height: 20),
-
-                      // ==========================================
-                      // GOALS
-                      // ==========================================
                       ..._sadhanaTypes.map(_buildGoalCard),
-
                       const SizedBox(height: 8),
-
-                      // ==========================================
-                      // BACKUP & RESTORE
-                      // ==========================================
                       _buildBackupRestoreCard(context),
                     ],
                   ),
@@ -453,7 +599,6 @@ class GoalEditDialog extends StatefulWidget {
 
 class _GoalEditDialogState extends State<GoalEditDialog> {
   late final TextEditingController _controller;
-
   late String _selectedUnit;
 
   bool _isSaving = false;
@@ -466,7 +611,6 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
     super.initState();
 
     final existing = widget.existingGoal;
-
     _selectedUnit = existing?.unit ?? _defaultUnit(widget.type);
 
     _controller = TextEditingController(
@@ -477,36 +621,23 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
   @override
   void dispose() {
     _controller.dispose();
-
     super.dispose();
   }
-
-  // ============================================================
-  // DEFAULT UNIT
-  // ============================================================
 
   String _defaultUnit(SadhanaTypeModel type) {
     switch (type.name.toLowerCase()) {
       case 'chanting':
         return 'rounds';
-
       case 'reading':
         return 'pages';
-
       case 'hearing':
         return 'minutes';
-
       case 'aarti':
         return 'aartis';
-
       default:
         return 'times';
     }
   }
-
-  // ============================================================
-  // FORMAT
-  // ============================================================
 
   String _formatValue(double value) {
     if (value == value.roundToDouble()) {
@@ -516,14 +647,8 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
     return value.toStringAsFixed(1);
   }
 
-  // ============================================================
-  // SAVE
-  // ============================================================
-
   Future<void> _save() async {
-    if (_isSaving) {
-      return;
-    }
+    if (_isSaving) return;
 
     final value = double.tryParse(_controller.text.trim());
 
@@ -531,7 +656,6 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid goal.')),
       );
-
       return;
     }
 
@@ -555,15 +679,10 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
 
       await widget.repository.saveGoal(goal);
 
-      if (!mounted) {
-        return;
-      }
-
+      if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       setState(() {
         _isSaving = false;
@@ -575,14 +694,8 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
     }
   }
 
-  // ============================================================
-  // DELETE
-  // ============================================================
-
   Future<void> _delete() async {
-    if (_isDeleting) {
-      return;
-    }
+    if (_isDeleting) return;
 
     setState(() {
       _isDeleting = true;
@@ -591,15 +704,10 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
     try {
       await widget.repository.deleteGoal(widget.userId, widget.type.id!);
 
-      if (!mounted) {
-        return;
-      }
-
+      if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       setState(() {
         _isDeleting = false;
@@ -611,10 +719,6 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
     }
   }
 
-  // ============================================================
-  // BUILD
-  // ============================================================
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -623,29 +727,21 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
       title: Row(
         children: [
           Text(widget.type.icon ?? '🙏', style: const TextStyle(fontSize: 26)),
-
           const SizedBox(width: 10),
-
           Expanded(child: Text('${widget.type.name} Goal')),
         ],
       ),
-
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ==================================================
-            // READING UNIT
-            // ==================================================
             if (_isReading) ...[
               const Text(
                 'Measure reading by',
                 style: TextStyle(fontWeight: FontWeight.w600),
               ),
-
               const SizedBox(height: 10),
-
               SegmentedButton<String>(
                 segments: const [
                   ButtonSegment<String>(value: 'pages', label: Text('Pages')),
@@ -660,22 +756,15 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
                 ],
                 selected: {_selectedUnit},
                 onSelectionChanged: (values) {
-                  if (values.isEmpty) {
-                    return;
-                  }
+                  if (values.isEmpty) return;
 
                   setState(() {
                     _selectedUnit = values.first;
                   });
                 },
               ),
-
               const SizedBox(height: 20),
             ],
-
-            // ==================================================
-            // GOAL VALUE
-            // ==================================================
             TextField(
               controller: _controller,
               autofocus: true,
@@ -692,13 +781,8 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
                 ),
               ),
             ),
-
-            // ==================================================
-            // EXISTING GOAL
-            // ==================================================
             if (widget.existingGoal != null) ...[
               const SizedBox(height: 12),
-
               Text(
                 'Current goal: '
                 '${_formatValue(widget.existingGoal!.targetValue)} '
@@ -710,14 +794,7 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
           ],
         ),
       ),
-
-      // ========================================================
-      // ACTIONS
-      // ========================================================
       actions: [
-        // ------------------------------------------------------
-        // REMOVE
-        // ------------------------------------------------------
         if (widget.existingGoal != null)
           TextButton(
             onPressed: (_isDeleting || _isSaving) ? null : _delete,
@@ -729,22 +806,12 @@ class _GoalEditDialogState extends State<GoalEditDialog> {
                   )
                 : const Text('REMOVE'),
           ),
-
-        // ------------------------------------------------------
-        // CANCEL
-        // ------------------------------------------------------
         TextButton(
           onPressed: (_isSaving || _isDeleting)
               ? null
-              : () {
-                  Navigator.of(context).pop(false);
-                },
+              : () => Navigator.of(context).pop(false),
           child: const Text('CANCEL'),
         ),
-
-        // ------------------------------------------------------
-        // SAVE
-        // ------------------------------------------------------
         FilledButton(
           onPressed: (_isSaving || _isDeleting) ? null : _save,
           child: _isSaving
