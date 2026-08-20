@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/learning_book.dart';
 import '../../models/learning_shloka.dart';
 import '../../repositories/learning_tracker_repository.dart';
+
+enum ShlokaSortOption { dateNewest, dateOldest, referenceAsc, referenceDesc }
 
 class LearningTrackerScreen extends StatefulWidget {
   final int userId;
@@ -16,15 +19,33 @@ class LearningTrackerScreen extends StatefulWidget {
 
 class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   final LearningTrackerRepository _repository = LearningTrackerRepository();
+  static const String _prefLastBookKey = 'last_opened_book_id_';
+
+  // Constants
+  static final LearningBook _allBooksOption = LearningBook(
+    id: -1,
+    userId: -1,
+    name: 'All Books',
+    levelCount: 1,
+    createdAt: DateTime.now(),
+  );
 
   List<LearningBook> _books = [];
   LearningBook? _selectedBook;
   List<LearningShloka> _shlokas = [];
 
   LearningStatus? _filter;
+  String _searchQuery = '';
+  ShlokaSortOption _sortBy = ShlokaSortOption.referenceAsc;
+
+  // Hierarchical reference filtering state
+  final List<String?> _selectedRefLevels = [null, null, null];
 
   bool _showTranslation = true;
   bool _loading = true;
+  bool _isSearching = false;
+
+  final TextEditingController _searchController = TextEditingController();
 
   // ============================================================
   // LIFECYCLE
@@ -34,6 +55,28 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   void initState() {
     super.initState();
     _loadBooks();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // ============================================================
+  // PREFERENCES
+  // ============================================================
+
+  Future<void> _saveLastBookId(int? bookId) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (bookId != null) {
+      await prefs.setInt('$_prefLastBookKey${widget.userId}', bookId);
+    }
+  }
+
+  Future<int?> _getLastBookId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('$_prefLastBookKey${widget.userId}');
   }
 
   // ============================================================
@@ -66,18 +109,21 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
 
       if (!mounted) return;
 
+      final lastBookId = await _getLastBookId();
+
       setState(() {
         _books = books;
 
-        if (_selectedBook != null) {
-          final matchingBooks = books.where(
-            (book) => book.id == _selectedBook!.id,
-          );
-
-          _selectedBook = matchingBooks.isNotEmpty ? matchingBooks.first : null;
+        if (lastBookId == -1) {
+          _selectedBook = _allBooksOption;
+        } else if (lastBookId != null) {
+          final matching = books.where((b) => b.id == lastBookId);
+          _selectedBook = matching.isNotEmpty
+              ? matching.first
+              : (books.isNotEmpty ? books.first : null);
+        } else {
+          _selectedBook = books.isNotEmpty ? books.first : null;
         }
-
-        _selectedBook ??= books.isNotEmpty ? books.first : null;
 
         _loading = false;
       });
@@ -99,20 +145,30 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
 
     if (book == null) {
       if (!mounted) return;
-
-      setState(() {
-        _shlokas = [];
-      });
-
+      setState(() => _shlokas = []);
       return;
     }
 
     try {
-      final shlokas = await _repository.getShlokas(
-        userId: widget.userId,
-        bookId: book.id!,
-        status: _filter,
-      );
+      List<LearningShloka> shlokas = [];
+
+      if (book.id == -1) {
+        // Fetch shlokas across all books
+        for (final b in _books) {
+          final bShlokas = await _repository.getShlokas(
+            userId: widget.userId,
+            bookId: b.id!,
+            status: _filter,
+          );
+          shlokas.addAll(bShlokas);
+        }
+      } else {
+        shlokas = await _repository.getShlokas(
+          userId: widget.userId,
+          bookId: book.id!,
+          status: _filter,
+        );
+      }
 
       if (!mounted) return;
 
@@ -128,6 +184,81 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
     await _loadBooks();
   }
 
+  // Helper to resolve book name for "All Books" view
+  String _getBookName(int bookId) {
+    return _books
+        .firstWhere((b) => b.id == bookId, orElse: () => _allBooksOption)
+        .name;
+  }
+
+  // Reset reference level breadcrumb choices
+  void _resetRefLevels() {
+    _selectedRefLevels[0] = null;
+    _selectedRefLevels[1] = null;
+    _selectedRefLevels[2] = null;
+  }
+
+  // Filtered & Sorted Shlokas getter
+  List<LearningShloka> get _processedShlokas {
+    List<LearningShloka> list = List.from(_shlokas);
+
+    // Search query filter
+    if (_searchQuery.trim().isNotEmpty) {
+      final query = _searchQuery.toLowerCase().trim();
+      list = list.where((s) {
+        final refMatch = s.reference.toLowerCase().contains(query);
+        final textMatch = s.shloka.toLowerCase().contains(query);
+        final transMatch =
+            s.translation?.toLowerCase().contains(query) ?? false;
+        final bookMatch = _getBookName(s.bookId).toLowerCase().contains(query);
+        return refMatch || textMatch || transMatch || bookMatch;
+      }).toList();
+    }
+
+    // Hierarchical reference dropdown filtering
+    for (int i = 0; i < 3; i++) {
+      final selectedVal = _selectedRefLevels[i];
+      if (selectedVal != null) {
+        list = list.where((s) {
+          final parts = s.reference.split('.');
+          return parts.length > i && parts[i] == selectedVal;
+        }).toList();
+      }
+    }
+
+    // Sorting logic
+    list.sort((a, b) {
+      switch (_sortBy) {
+        case ShlokaSortOption.dateNewest:
+          final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return bDate.compareTo(aDate);
+        case ShlokaSortOption.dateOldest:
+          final aDate = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final bDate = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return aDate.compareTo(bDate);
+        case ShlokaSortOption.referenceAsc:
+          return _compareReferences(a.reference, b.reference);
+        case ShlokaSortOption.referenceDesc:
+          return _compareReferences(b.reference, a.reference);
+      }
+    });
+
+    return list;
+  }
+
+  int _compareReferences(String refA, String refB) {
+    final partsA = refA.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final partsB = refB.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+    for (int i = 0; i < partsA.length && i < partsB.length; i++) {
+      if (partsA[i] != partsB[i]) {
+        return partsA[i].compareTo(partsB[i]);
+      }
+    }
+    return partsA.length.compareTo(partsB.length);
+  }
+
   // ============================================================
   // BOOK DIALOG
   // ============================================================
@@ -139,7 +270,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        String? errorMessage; // Track inline dialog error
+        String? errorMessage;
 
         return StatefulBuilder(
           builder: (context, setDialogState) {
@@ -190,8 +321,6 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
-
-                      // Inline Error Banner
                       if (errorMessage != null) ...[
                         const SizedBox(height: 16),
                         Container(
@@ -223,16 +352,14 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                           ),
                         ),
                       ],
-
                       const SizedBox(height: 20),
-
                       TextField(
                         controller: nameController,
                         textCapitalization: TextCapitalization.words,
                         onChanged: (_) {
                           if (errorMessage != null) {
                             setDialogState(() {
-                              errorMessage = null; // Clear error on edit
+                              errorMessage = null;
                             });
                           }
                         },
@@ -244,27 +371,21 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                               .withOpacity(0.35),
                         ),
                       ),
-
                       const SizedBox(height: 24),
-
                       Text(
                         'Reference structure',
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-
                       const SizedBox(height: 4),
-
                       Text(
                         'Choose how many levels your references should use.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
-
                       const SizedBox(height: 12),
-
                       SizedBox(
                         width: double.infinity,
                         child: SegmentedButton<int>(
@@ -290,9 +411,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                           },
                         ),
                       ),
-
                       const SizedBox(height: 12),
-
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(14),
@@ -329,9 +448,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
               actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
               actions: [
                 TextButton(
-                  onPressed: () {
-                    Navigator.pop(dialogContext);
-                  },
+                  onPressed: () => Navigator.pop(dialogContext),
                   child: const Text('Cancel'),
                 ),
                 FilledButton.icon(
@@ -366,11 +483,9 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                       }
 
                       if (!dialogContext.mounted) return;
-
                       Navigator.pop(dialogContext, true);
                     } catch (e) {
                       if (!dialogContext.mounted) return;
-
                       setDialogState(() {
                         errorMessage = e.toString().replaceFirst(
                           'Exception: ',
@@ -412,22 +527,22 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   // ============================================================
 
   Future<void> _showShlokaDialog({LearningShloka? shloka}) async {
-    final book = _selectedBook;
+    LearningBook? targetBook = _selectedBook;
 
-    if (book == null) {
-      return;
+    if (targetBook == null) return;
+
+    if (targetBook.id == -1) {
+      if (_books.isEmpty) return;
+      targetBook = _books.first;
     }
 
     final referenceController = TextEditingController(
       text: shloka?.reference ?? '',
     );
-
     final shlokaController = TextEditingController(text: shloka?.shloka ?? '');
-
     final translationController = TextEditingController(
       text: shloka?.translation ?? '',
     );
-
     final urlController = TextEditingController(text: shloka?.url ?? '');
 
     LearningStatus status = shloka?.status ?? LearningStatus.notLearned;
@@ -441,7 +556,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
             final colorScheme = Theme.of(context).colorScheme;
 
             return _ShlokaDialogContent(
-              book: book,
+              book: targetBook!,
               shloka: shloka,
               referenceController: referenceController,
               shlokaController: shlokaController,
@@ -455,16 +570,14 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                 });
               },
               onSave: ({required String? error}) async {
-                if (error != null) {
-                  return;
-                }
+                if (error != null) return;
 
                 try {
                   if (shloka == null) {
                     await _repository.addShloka(
                       LearningShloka(
                         userId: widget.userId,
-                        bookId: book.id!,
+                        bookId: targetBook!.id!,
                         reference: referenceController.text.trim(),
                         shloka: shlokaController.text.trim(),
                         translation: translationController.text.trim().isEmpty
@@ -495,11 +608,9 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                   }
 
                   if (!dialogContext.mounted) return;
-
                   Navigator.pop(dialogContext, true);
                 } catch (e) {
                   if (!dialogContext.mounted) return;
-
                   ScaffoldMessenger.of(dialogContext).showSnackBar(
                     SnackBar(
                       content: Text(
@@ -521,7 +632,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   }
 
   // ============================================================
-  // STATUS
+  // STATUS & DELETE
   // ============================================================
 
   Future<void> _changeStatus(
@@ -530,16 +641,11 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   ) async {
     try {
       await _repository.updateStatus(shlokaId: shloka.id!, status: status);
-
       await _loadShlokas();
     } catch (e) {
       _showError(e.toString());
     }
   }
-
-  // ============================================================
-  // DELETE SHLOKA
-  // ============================================================
 
   Future<void> _deleteShloka(LearningShloka shloka) async {
     final confirmed = await showDialog<bool>(
@@ -569,14 +675,11 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
             ],
           ),
           content: Text(
-            'Are you sure you want to permanently delete '
-            '${shloka.reference}?',
+            'Are you sure you want to permanently delete ${shloka.reference}?',
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context, false);
-              },
+              onPressed: () => Navigator.pop(context, false),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -584,9 +687,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                 backgroundColor: colorScheme.error,
                 foregroundColor: colorScheme.onError,
               ),
-              onPressed: () {
-                Navigator.pop(context, true);
-              },
+              onPressed: () => Navigator.pop(context, true),
               child: const Text('Delete'),
             ),
           ],
@@ -594,9 +695,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
       },
     );
 
-    if (confirmed != true) {
-      return;
-    }
+    if (confirmed != true) return;
 
     try {
       await _repository.deleteShloka(shloka.id!);
@@ -606,11 +705,9 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
     }
   }
 
-  // ============================================================
-  // DELETE BOOK
-  // ============================================================
-
   Future<void> _deleteBook(LearningBook book) async {
+    if (book.id == -1) return;
+
     if (book.name.trim().toLowerCase() == 'others') {
       _showError('The Others book cannot be deleted.');
       return;
@@ -643,15 +740,11 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
             ],
           ),
           content: Text(
-            'All shlokas inside "${book.name}" '
-            'will also be deleted.\n\n'
-            'This action cannot be undone.',
+            'All shlokas inside "${book.name}" will also be deleted.\n\nThis action cannot be undone.',
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context, false);
-              },
+              onPressed: () => Navigator.pop(context, false),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -659,9 +752,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                 backgroundColor: colorScheme.error,
                 foregroundColor: colorScheme.onError,
               ),
-              onPressed: () {
-                Navigator.pop(context, true);
-              },
+              onPressed: () => Navigator.pop(context, true),
               child: const Text('Delete Book'),
             ),
           ],
@@ -669,9 +760,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
       },
     );
 
-    if (confirmed != true) {
-      return;
-    }
+    if (confirmed != true) return;
 
     try {
       await _repository.deleteBook(book.id!);
@@ -690,12 +779,11 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   }
 
   // ============================================================
-  // OPEN URL
+  // OPEN URL & HELPERS
   // ============================================================
 
   Future<void> _openUrl(String url) async {
     final uri = Uri.tryParse(url);
-
     if (uri == null) {
       _showError('Invalid URL.');
       return;
@@ -710,21 +798,14 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
     }
   }
 
-  // ============================================================
-  // HELPERS
-  // ============================================================
-
   Color _statusColor(BuildContext context, LearningStatus status) {
     switch (status) {
       case LearningStatus.notLearned:
         return Colors.grey;
-
       case LearningStatus.learning:
         return Colors.blue;
-
       case LearningStatus.needRevision:
         return Colors.orange;
-
       case LearningStatus.memorized:
         return Colors.green;
     }
@@ -736,7 +817,6 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
 
   void _showError(String message) {
     if (!mounted) return;
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
@@ -758,11 +838,40 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
       appBar: AppBar(
         elevation: 0,
         titleSpacing: 20,
-        title: const Text(
-          'Learning Tracker',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Search ref, shloka, or book...',
+                  border: InputBorder.none,
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value;
+                  });
+                },
+              )
+            : const Text(
+                'Learning Tracker',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
         actions: [
+          IconButton(
+            tooltip: _isSearching ? 'Close Search' : 'Search Shlokas',
+            icon: Icon(_isSearching ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() {
+                if (_isSearching) {
+                  _isSearching = false;
+                  _searchQuery = '';
+                  _searchController.clear();
+                } else {
+                  _isSearching = true;
+                }
+              });
+            },
+          ),
           IconButton(
             tooltip: _showTranslation
                 ? 'Hide translations'
@@ -776,7 +885,8 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
               _showTranslation ? Icons.translate : Icons.translate_outlined,
             ),
           ),
-          if (_selectedBook != null) _buildBookMenu(),
+          if (_selectedBook != null && _selectedBook!.id != -1)
+            _buildBookMenu(),
           const SizedBox(width: 8),
         ],
       ),
@@ -785,11 +895,19 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _refresh,
-              child: Column(
-                children: [
-                  _buildBookHeader(),
-                  _buildFilters(),
-                  Expanded(child: _buildShlokaList()),
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Column(
+                      children: [
+                        _buildBookHeader(),
+                        _buildReferenceDropdowns(),
+                        _buildFiltersAndSortingBar(),
+                      ],
+                    ),
+                  ),
+                  _buildShlokaListSliver(),
                 ],
               ),
             ),
@@ -806,13 +924,11 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
       icon: const Icon(Icons.more_vert),
       onSelected: (value) {
         final book = _selectedBook;
-
-        if (book == null) return;
+        if (book == null || book.id == -1) return;
 
         if (value == 'edit') {
           _showBookDialog(book: book);
         }
-
         if (value == 'delete') {
           _deleteBook(book);
         }
@@ -848,7 +964,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   // ============================================================
 
   Widget _buildFloatingActionButton() {
-    if (_selectedBook == null) {
+    if (_books.isEmpty) {
       return FloatingActionButton.extended(
         heroTag: 'add_book_fab',
         onPressed: () => _showBookDialog(),
@@ -866,16 +982,18 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   }
 
   // ============================================================
-  // BOOK HEADER
+  // BOOK HEADER WITH "ALL BOOKS" OPTION
   // ============================================================
 
   Widget _buildBookHeader() {
     final colorScheme = Theme.of(context).colorScheme;
 
+    final dropdownItems = [_allBooksOption, ..._books];
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: colorScheme.surfaceContainerHighest.withOpacity(0.45),
           borderRadius: BorderRadius.circular(20),
@@ -886,38 +1004,41 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
         child: Row(
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
                 color: colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(
-                Icons.menu_book_outlined,
+                _selectedBook?.id == -1
+                    ? Icons.collections_bookmark_outlined
+                    : Icons.menu_book_outlined,
                 color: colorScheme.onPrimaryContainer,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: DropdownButtonFormField<int>(
-                initialValue: _selectedBook?.id,
+                value: _selectedBook?.id,
                 isExpanded: true,
                 decoration: const InputDecoration(
-                  labelText: 'Current book',
+                  labelText: 'Current Book',
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 0,
-                    vertical: 4,
-                  ),
+                  contentPadding: EdgeInsets.zero,
                 ),
-                items: _books
+                items: dropdownItems
                     .map(
                       (book) => DropdownMenuItem<int>(
                         value: book.id,
                         child: Text(
                           book.name,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            fontWeight: book.id == -1
+                                ? FontWeight.bold
+                                : FontWeight.w600,
+                          ),
                         ),
                       ),
                     )
@@ -925,13 +1046,15 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                 onChanged: (id) async {
                   if (id == null) return;
 
-                  final book = _books.firstWhere((book) => book.id == id);
+                  final selected = dropdownItems.firstWhere((b) => b.id == id);
 
                   setState(() {
-                    _selectedBook = book;
+                    _selectedBook = selected;
                     _filter = null;
+                    _resetRefLevels();
                   });
 
+                  await _saveLastBookId(selected.id);
                   await _loadShlokas();
                 },
               ),
@@ -949,40 +1072,269 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   }
 
   // ============================================================
-  // FILTERS
+  // HIERARCHICAL REFERENCE DROPDOWNS
   // ============================================================
 
-  Widget _buildFilters() {
-    return SizedBox(
-      height: 78,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+  Widget _buildReferenceDropdowns() {
+    if (_shlokas.isEmpty) return const SizedBox.shrink();
+
+    int maxLevels = 1;
+    if (_selectedBook != null && _selectedBook!.id != -1) {
+      maxLevels = _selectedBook!.levelCount;
+    } else {
+      // Find max levels across all shlokas in list
+      for (final s in _shlokas) {
+        final partsCount = s.reference.split('.').length;
+        if (partsCount > maxLevels) maxLevels = partsCount;
+      }
+    }
+
+    if (maxLevels <= 1) return const SizedBox.shrink();
+
+    final colorScheme = Theme.of(context).colorScheme;
+
+    // Determine available values level by level based on current selections
+    List<List<String>> availableLevels = [];
+
+    List<LearningShloka> currentPool = List.from(_shlokas);
+
+    for (int lvl = 0; lvl < maxLevels; lvl++) {
+      final Set<String> uniqueVals = {};
+      for (final s in currentPool) {
+        final parts = s.reference.split('.');
+        if (parts.length > lvl) {
+          uniqueVals.add(parts[lvl]);
+        }
+      }
+
+      final sortedList = uniqueVals.toList()
+        ..sort((a, b) {
+          final intA = int.tryParse(a) ?? 0;
+          final intB = int.tryParse(b) ?? 0;
+          return intA.compareTo(intB);
+        });
+
+      availableLevels.add(sortedList);
+
+      final selectedVal = _selectedRefLevels[lvl];
+      if (selectedVal != null) {
+        currentPool = currentPool.where((s) {
+          final parts = s.reference.split('.');
+          return parts.length > lvl && parts[lvl] == selectedVal;
+        }).toList();
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.filter_list, size: 16, color: colorScheme.primary),
+                const SizedBox(width: 6),
+                Text(
+                  'Reference Filter',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.primary,
+                  ),
+                ),
+                const Spacer(),
+                if (_selectedRefLevels.any((e) => e != null))
+                  InkWell(
+                    onTap: () {
+                      setState(() {
+                        _resetRefLevels();
+                      });
+                    },
+                    child: Text(
+                      'Clear',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colorScheme.error,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: List.generate(maxLevels, (index) {
+                  final options = availableLevels[index];
+                  final currentVal = _selectedRefLevels[index];
+
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: SizedBox(
+                      width: 100,
+                      child: DropdownButtonFormField<String?>(
+                        value: options.contains(currentVal) ? currentVal : null,
+                        isDense: true,
+                        decoration: InputDecoration(
+                          labelText: 'Lvl ${index + 1}',
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        items: [
+                          const DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text('All', style: TextStyle(fontSize: 13)),
+                          ),
+                          ...options.map(
+                            (val) => DropdownMenuItem<String?>(
+                              value: val,
+                              child: Text(
+                                val,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedRefLevels[index] = val;
+                            // Clear deeper levels when higher level changes
+                            for (int k = index + 1; k < 3; k++) {
+                              _selectedRefLevels[k] = null;
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // FILTERS, COUNTER & SORTING
+  // ============================================================
+
+  Widget _buildFiltersAndSortingBar() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final processedList = _processedShlokas;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Column(
         children: [
-          _filterChip(
-            label: 'All',
-            selected: _filter == null,
-            icon: const Icon(Icons.apps_outlined, size: 18),
-            onTap: () async {
-              setState(() {
-                _filter = null;
-              });
-
-              await _loadShlokas();
-            },
+          Row(
+            children: [
+              // Count badge
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: colorScheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${processedList.length} Shlokas',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onSecondaryContainer,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              // Sort menu button
+              PopupMenuButton<ShlokaSortOption>(
+                tooltip: 'Sort Options',
+                icon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.sort, size: 18, color: colorScheme.primary),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Sort',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                onSelected: (option) {
+                  setState(() {
+                    _sortBy = option;
+                  });
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: ShlokaSortOption.referenceAsc,
+                    child: Text('Reference (1 -> 9)'),
+                  ),
+                  const PopupMenuItem(
+                    value: ShlokaSortOption.referenceDesc,
+                    child: Text('Reference (9 -> 1)'),
+                  ),
+                  const PopupMenuItem(
+                    value: ShlokaSortOption.dateNewest,
+                    child: Text('Date Added (Newest First)'),
+                  ),
+                  const PopupMenuItem(
+                    value: ShlokaSortOption.dateOldest,
+                    child: Text('Date Added (Oldest First)'),
+                  ),
+                ],
+              ),
+            ],
           ),
-          ...LearningStatus.values.map(
-            (status) => _filterChip(
-              label: status.label,
-              selected: _filter == status,
-              icon: Text(status.icon, style: const TextStyle(fontSize: 16)),
-              onTap: () async {
-                setState(() {
-                  _filter = status;
-                });
-
-                await _loadShlokas();
-              },
+          SizedBox(
+            height: 48,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _filterChip(
+                  label: 'All',
+                  selected: _filter == null,
+                  icon: const Icon(Icons.apps_outlined, size: 18),
+                  onTap: () async {
+                    setState(() => _filter = null);
+                    await _loadShlokas();
+                  },
+                ),
+                ...LearningStatus.values.map(
+                  (status) => _filterChip(
+                    label: status.label,
+                    selected: _filter == status,
+                    icon: Text(
+                      status.icon,
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                    onTap: () async {
+                      setState(() => _filter = status);
+                      await _loadShlokas();
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1009,63 +1361,69 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   }
 
   // ============================================================
-  // SHLOKA LIST
+  // SHLOKA LIST SLIVER
   // ============================================================
 
-  Widget _buildShlokaList() {
+  Widget _buildShlokaListSliver() {
+    final list = _processedShlokas;
+
     if (_selectedBook == null) {
-      return _buildEmptyState(
-        icon: Icons.menu_book_outlined,
-        title: 'Create your first book',
-        subtitle:
-            'Add a scripture book to start organizing and learning your shlokas.',
-        actionLabel: 'Create Book',
-        onAction: () => _showBookDialog(),
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: _buildEmptyState(
+          icon: Icons.menu_book_outlined,
+          title: 'Create your first book',
+          subtitle:
+              'Add a scripture book to start organizing and learning your shlokas.',
+          actionLabel: 'Create Book',
+          onAction: () => _showBookDialog(),
+        ),
       );
     }
 
-    if (_shlokas.isEmpty) {
-      return _buildEmptyState(
-        icon: _filter == null
-            ? Icons.auto_stories_outlined
-            : Icons.filter_alt_off_outlined,
-        title: _filter == null ? 'No shlokas yet' : 'No matching shlokas',
-        subtitle: _filter == null
-            ? 'Start building your collection by adding your first shloka.'
-            : 'Try another learning-status filter or add a new shloka.',
-        actionLabel: _filter == null ? 'Add Shloka' : 'Show All',
-        onAction: () async {
-          if (_filter != null) {
-            setState(() {
-              _filter = null;
-            });
-
-            await _loadShlokas();
-          } else {
-            await _showShlokaDialog();
-          }
-        },
+    if (list.isEmpty) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: _buildEmptyState(
+          icon: _filter == null
+              ? Icons.auto_stories_outlined
+              : Icons.filter_alt_off_outlined,
+          title: _filter == null ? 'No shlokas found' : 'No matching shlokas',
+          subtitle: _filter == null
+              ? 'Start building your collection by adding your first shloka.'
+              : 'Try another filter or search term.',
+          actionLabel: _filter == null ? 'Add Shloka' : 'Clear Filters',
+          onAction: () async {
+            if (_filter != null ||
+                _searchQuery.isNotEmpty ||
+                _selectedRefLevels.any((e) => e != null)) {
+              setState(() {
+                _filter = null;
+                _searchQuery = '';
+                _searchController.clear();
+                _resetRefLevels();
+              });
+              await _loadShlokas();
+            } else {
+              await _showShlokaDialog();
+            }
+          },
+        ),
       );
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final maxWidth = constraints.maxWidth > 900 ? 900.0 : double.infinity;
-
-        return Center(
-          child: SizedBox(
-            width: maxWidth,
-            child: ListView.builder(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 110),
-              itemCount: _shlokas.length,
-              itemBuilder: (context, index) {
-                return _buildShlokaCard(_shlokas[index]);
-              },
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 110),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate((context, index) {
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900),
+              child: _buildShlokaCard(list[index]),
             ),
-          ),
-        );
-      },
+          );
+        }, childCount: list.length),
+      ),
     );
   }
 
@@ -1082,72 +1440,63 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   }) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 92,
-                      height: 92,
-                      decoration: BoxDecoration(
-                        color: colorScheme.primaryContainer.withOpacity(0.55),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(icon, size: 42, color: colorScheme.primary),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: Text(
-                        subtitle,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                          height: 1.5,
-                        ),
-                      ),
-                    ),
-                    if (actionLabel != null && onAction != null) ...[
-                      const SizedBox(height: 22),
-                      FilledButton.icon(
-                        onPressed: onAction,
-                        icon: const Icon(Icons.add),
-                        label: Text(actionLabel),
-                      ),
-                    ],
-                  ],
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 92,
+              height: 92,
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer.withOpacity(0.55),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 42, color: colorScheme.primary),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  height: 1.5,
                 ),
               ),
             ),
-          ),
-        );
-      },
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 22),
+              FilledButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.add),
+                label: Text(actionLabel),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
   // ============================================================
-  // SHLOKA CARD
+  // SHLOKA CARD (WITH LINE SPACING ENHANCEMENT)
   // ============================================================
 
   Widget _buildShlokaCard(LearningShloka shloka) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final bookName = _getBookName(shloka.bookId);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
@@ -1162,49 +1511,57 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ----------------------------------------------------
-            // HEADER
-            // ----------------------------------------------------
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 13,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    shloka.reference,
-                    style: TextStyle(
-                      color: colorScheme.onPrimaryContainer,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 13,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        shloka.reference,
+                        style: TextStyle(
+                          color: colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
                     ),
-                  ),
+                    if (_selectedBook?.id == -1) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        bookName,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-
                 const SizedBox(width: 10),
-
                 Expanded(child: _statusBadge(shloka.status)),
-
                 _buildStatusMenu(shloka),
-
                 _buildShlokaMenu(shloka),
               ],
             ),
-
             const SizedBox(height: 18),
 
             // ----------------------------------------------------
-            // SHLOKA
+            // SHLOKA DISPLAY (ENHANCED LINE SPACING)
             // ----------------------------------------------------
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
               decoration: BoxDecoration(
                 color: colorScheme.surfaceContainerHighest.withOpacity(0.28),
                 borderRadius: BorderRadius.circular(16),
@@ -1212,15 +1569,14 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
               child: Text(
                 shloka.shloka,
                 style: theme.textTheme.bodyLarge?.copyWith(
-                  height: 1.75,
+                  // height: 2.1,
+                  fontSize: 16,
+                  letterSpacing: 0.3,
                   fontWeight: FontWeight.w500,
                 ),
               ),
             ),
 
-            // ----------------------------------------------------
-            // TRANSLATION
-            // ----------------------------------------------------
             if (_showTranslation &&
                 shloka.translation != null &&
                 shloka.translation!.trim().isNotEmpty) ...[
@@ -1255,7 +1611,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                     const SizedBox(height: 8),
                     Text(
                       shloka.translation!,
-                      style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
+                      style: theme.textTheme.bodyMedium?.copyWith(height: 1.65),
                     ),
                   ],
                 ),
@@ -1268,7 +1624,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   }
 
   // ============================================================
-  // STATUS BADGE
+  // STATUS BADGE & MENUS
   // ============================================================
 
   Widget _statusBadge(LearningStatus status) {
@@ -1304,18 +1660,12 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
     );
   }
 
-  // ============================================================
-  // STATUS MENU
-  // ============================================================
-
   Widget _buildStatusMenu(LearningShloka shloka) {
     return PopupMenuButton<LearningStatus>(
       tooltip: 'Change learning status',
       padding: EdgeInsets.zero,
       icon: Text(shloka.status.icon, style: const TextStyle(fontSize: 21)),
-      onSelected: (status) {
-        _changeStatus(shloka, status);
-      },
+      onSelected: (status) => _changeStatus(shloka, status),
       itemBuilder: (context) {
         return LearningStatus.values
             .map(
@@ -1335,10 +1685,6 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
     );
   }
 
-  // ============================================================
-  // SHLOKA THREE DOT MENU
-  // ============================================================
-
   Widget _buildShlokaMenu(LearningShloka shloka) {
     final hasUrl = shloka.url != null && shloka.url!.trim().isNotEmpty;
 
@@ -1351,13 +1697,9 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
           case 'edit':
             _showShlokaDialog(shloka: shloka);
             break;
-
           case 'source':
-            if (hasUrl) {
-              _openUrl(shloka.url!);
-            }
+            if (hasUrl) _openUrl(shloka.url!);
             break;
-
           case 'delete':
             _deleteShloka(shloka);
             break;
@@ -1413,7 +1755,6 @@ class _ShlokaDialogContent extends StatefulWidget {
   final ColorScheme colorScheme;
 
   final ValueChanged<LearningStatus> onStatusChanged;
-
   final Future<void> Function({required String? error}) onSave;
 
   const _ShlokaDialogContent({
@@ -1437,44 +1778,30 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
   String? _formError;
   bool _saving = false;
 
-  // ============================================================
-  // VALIDATION
-  // ============================================================
-
   String? _validate() {
     final reference = widget.referenceController.text.trim();
     final shloka = widget.shlokaController.text.trim();
 
-    if (reference.isEmpty) {
-      return 'Please enter a reference.';
-    }
-
-    if (shloka.isEmpty) {
-      return 'Please enter the shloka text.';
-    }
+    if (reference.isEmpty) return 'Please enter a reference.';
+    if (shloka.isEmpty) return 'Please enter the shloka text.';
 
     final parts = reference.split('.');
 
     if (parts.length != widget.book.levelCount) {
-      return 'Reference must contain '
-          '${widget.book.levelCount} level'
-          '${widget.book.levelCount == 1 ? '' : 's'}. '
-          'Example: ${_referenceHint(widget.book.levelCount)}';
+      return 'Reference must contain ${widget.book.levelCount} level'
+          '${widget.book.levelCount == 1 ? '' : 's'}. Example: ${_referenceHint(widget.book.levelCount)}';
     }
 
     for (final part in parts) {
       final number = int.tryParse(part);
-
       if (number == null || number <= 0) {
         return 'Reference contains an invalid number.';
       }
     }
 
     final url = widget.urlController.text.trim();
-
     if (url.isNotEmpty) {
       final uri = Uri.tryParse(url);
-
       if (uri == null ||
           (!uri.hasScheme ||
               !(uri.scheme == 'http' || uri.scheme == 'https'))) {
@@ -1498,19 +1825,12 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
     }
   }
 
-  // ============================================================
-  // SAVE
-  // ============================================================
-
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
 
     final error = _validate();
-
     if (error != null) {
-      setState(() {
-        _formError = error;
-      });
+      setState(() => _formError = error);
       return;
     }
 
@@ -1523,17 +1843,12 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
       await widget.onSave(error: null);
     } catch (e) {
       if (!mounted) return;
-
       setState(() {
         _saving = false;
         _formError = e.toString().replaceFirst('Exception: ', '');
       });
     }
   }
-
-  // ============================================================
-  // BUILD
-  // ============================================================
 
   @override
   Widget build(BuildContext context) {
@@ -1600,22 +1915,18 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                 _buildErrorBanner(),
                 const SizedBox(height: 16),
               ],
-
-              // Basic Information Section
               _sectionHeader(
                 icon: Icons.info_outline,
                 title: 'Basic Information',
                 subtitle: 'Enter the reference and shloka text.',
               ),
               const SizedBox(height: 14),
-
               TextField(
                 controller: widget.referenceController,
                 textInputAction: TextInputAction.next,
                 decoration: InputDecoration(
                   labelText: 'Reference',
                   hintText: _referenceHint(widget.book.levelCount),
-                  // prefixIcon: const Icon(Icons.tag_outlined),
                   filled: true,
                   fillColor: colorScheme.surfaceContainerHighest.withOpacity(
                     0.35,
@@ -1629,7 +1940,6 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
               const SizedBox(height: 8),
               _referenceInfo(),
               const SizedBox(height: 16),
-
               TextField(
                 controller: widget.shlokaController,
                 textCapitalization: TextCapitalization.sentences,
@@ -1641,10 +1951,6 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                   labelText: 'Shloka',
                   hintText: 'Enter the complete shloka here...',
                   alignLabelWithHint: true,
-                  // prefixIcon: const Padding(
-                  //   padding: EdgeInsets.only(bottom: 60),
-                  //   child: Icon(Icons.format_quote_outlined),
-                  // ),
                   filled: true,
                   fillColor: colorScheme.surfaceContainerHighest.withOpacity(
                     0.35,
@@ -1656,15 +1962,12 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                 ),
               ),
               const SizedBox(height: 24),
-
-              // Additional Information Section
               _sectionHeader(
                 icon: Icons.notes_outlined,
                 title: 'Additional Information',
                 subtitle: 'Translation and source are optional.',
               ),
               const SizedBox(height: 14),
-
               TextField(
                 controller: widget.translationController,
                 textCapitalization: TextCapitalization.sentences,
@@ -1676,10 +1979,6 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                   labelText: 'Translation',
                   hintText: 'Enter the translation...',
                   alignLabelWithHint: true,
-                  // prefixIcon: const Padding(
-                  //   padding: EdgeInsets.only(bottom: 40),
-                  //   child: Icon(Icons.translate_outlined),
-                  // ),
                   filled: true,
                   fillColor: colorScheme.surfaceContainerHighest.withOpacity(
                     0.35,
@@ -1691,7 +1990,6 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                 ),
               ),
               const SizedBox(height: 14),
-
               TextField(
                 controller: widget.urlController,
                 keyboardType: TextInputType.url,
@@ -1699,7 +1997,6 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                 decoration: InputDecoration(
                   labelText: 'Source URL',
                   hintText: 'https://example.com/...',
-                  // prefixIcon: const Icon(Icons.link_outlined),
                   filled: true,
                   fillColor: colorScheme.surfaceContainerHighest.withOpacity(
                     0.35,
@@ -1712,21 +2009,17 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                 ),
               ),
               const SizedBox(height: 24),
-
-              // Learning Progress Section
               _sectionHeader(
                 icon: Icons.school_outlined,
                 title: 'Learning Progress',
                 subtitle: 'Set the current learning status.',
               ),
               const SizedBox(height: 14),
-
               DropdownButtonFormField<LearningStatus>(
-                initialValue: widget.status,
+                value: widget.status,
                 isExpanded: true,
                 decoration: InputDecoration(
                   labelText: 'Learning status',
-                  // prefixIcon: const Icon(Icons.school_outlined),
                   filled: true,
                   fillColor: colorScheme.surfaceContainerHighest.withOpacity(
                     0.35,
@@ -1810,10 +2103,6 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
     );
   }
 
-  // ============================================================
-  // ERROR BANNER
-  // ============================================================
-
   Widget _buildErrorBanner() {
     final colorScheme = widget.colorScheme;
 
@@ -1839,11 +2128,7 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
-            onPressed: () {
-              setState(() {
-                _formError = null;
-              });
-            },
+            onPressed: () => setState(() => _formError = null),
             icon: Icon(
               Icons.close,
               color: colorScheme.onErrorContainer,
@@ -1854,10 +2139,6 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
       ),
     );
   }
-
-  // ============================================================
-  // SECTION HEADER
-  // ============================================================
 
   Widget _sectionHeader({
     required IconData icon,
@@ -1901,10 +2182,6 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
     );
   }
 
-  // ============================================================
-  // REFERENCE INFO
-  // ============================================================
-
   Widget _referenceInfo() {
     final colorScheme = widget.colorScheme;
 
@@ -1925,8 +2202,7 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
           Expanded(
             child: Text(
               'Use ${widget.book.levelCount} level'
-              '${widget.book.levelCount == 1 ? '' : 's'} '
-              'for this book. Example: '
+              '${widget.book.levelCount == 1 ? '' : 's'} for this book. Example: '
               '${_referenceHint(widget.book.levelCount)}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: colorScheme.onPrimaryContainer,
