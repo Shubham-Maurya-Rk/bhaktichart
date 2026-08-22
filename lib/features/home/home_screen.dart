@@ -14,6 +14,7 @@ import 'package:bhaktichart/models/day_note_model.dart';
 import 'package:bhaktichart/models/goal_model.dart';
 import 'package:bhaktichart/models/sadhana_type_model.dart';
 import 'package:bhaktichart/repositories/sadhana_repository.dart';
+import 'package:bhaktichart/repositories/saved_links_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:bhaktichart/services/backup_scheduler.dart';
 import 'package:intl/intl.dart';
@@ -3470,58 +3471,83 @@ class _HomeScreenState extends State<HomeScreen> {
   // YOUTUBE LINKS MANAGER DIALOG
   // ------------------------------------------------------------------
   Future<void> _showManageLinksDialog(BuildContext context) async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> links = prefs.getStringList('saved_links') ?? [];
+    final repository = SavedLinksRepository.instance;
+
+    List<SavedLink> links = await repository.getAllLinks();
 
     final titleController = TextEditingController();
     final urlController = TextEditingController();
 
-    if (!context.mounted) return;
+    if (!context.mounted) {
+      return;
+    }
 
     await showDialog(
       context: context,
+
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
               title: const Text('Manage Saved Links'),
+
               content: SizedBox(
                 width: double.maxFinite,
+
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+
                     children: [
+                      // ==================================================
+                      // NO LINKS
+                      // ==================================================
+
                       if (links.isEmpty)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 12),
                           child: Text('No links added yet.'),
                         )
+                      // ==================================================
+                      // LINKS
+                      // ==================================================
                       else
                         ReorderableListView.builder(
                           shrinkWrap: true,
+
                           physics: const NeverScrollableScrollPhysics(),
+
                           itemCount: links.length,
+
                           onReorder: (int oldIndex, int newIndex) async {
                             if (oldIndex < newIndex) {
                               newIndex -= 1;
                             }
-                            final String item = links.removeAt(oldIndex);
-                            links.insert(newIndex, item);
 
-                            await prefs.setStringList('saved_links', links);
+                            // Update database order.
+                            await repository.reorderLinks(oldIndex, newIndex);
+
+                            // Reload from database.
+                            links = await repository.getAllLinks();
+
                             setDialogState(() {});
-                            setState(() {});
+
+                            if (mounted) {
+                              setState(() {});
+                            }
                           },
+
                           itemBuilder: (context, index) {
-                            final parts = links[index].split('|');
-                            final title = parts[0];
-                            final url = parts.length > 1 ? parts[1] : parts[0];
+                            final link = links[index];
 
                             return ListTile(
-                              key: ValueKey(links[index]),
+                              key: ValueKey(link.id),
+
                               contentPadding: EdgeInsets.zero,
+
                               leading: Row(
                                 mainAxisSize: MainAxisSize.min,
+
                                 children: [
                                   Icon(
                                     Icons.drag_handle,
@@ -3529,59 +3555,86 @@ class _HomeScreenState extends State<HomeScreen> {
                                       context,
                                     ).colorScheme.outline,
                                   ),
+
                                   const SizedBox(width: 8),
-                                  _getLinkIcon(url),
+
+                                  _getLinkIcon(link.url),
                                 ],
                               ),
+
                               title: Text(
-                                title,
+                                link.title.isEmpty ? link.url : link.title,
+
                                 maxLines: 1,
+
                                 overflow: TextOverflow.ellipsis,
                               ),
+
                               subtitle: Text(
-                                url,
+                                link.url,
+
                                 maxLines: 1,
+
                                 overflow: TextOverflow.ellipsis,
                               ),
+
                               trailing: IconButton(
                                 icon: const Icon(
                                   Icons.delete_outline,
                                   color: Colors.red,
                                 ),
+
                                 onPressed: () async {
-                                  links.removeAt(index);
-                                  await prefs.setStringList(
-                                    'saved_links',
-                                    links,
-                                  );
+                                  await repository.deleteLink(link.id);
+
+                                  links = await repository.getAllLinks();
+
                                   setDialogState(() {});
-                                  setState(() {});
+
+                                  if (mounted) {
+                                    setState(() {});
+                                  }
                                 },
                               ),
                             );
                           },
                         ),
+
                       const Divider(),
+
+                      // ==================================================
+                      // ADD NEW LINK
+                      // ==================================================
                       const Align(
                         alignment: Alignment.centerLeft,
+
                         child: Text(
                           'Add New Link',
+
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
+
                       const SizedBox(height: 8),
+
                       TextField(
                         controller: titleController,
+
                         decoration: const InputDecoration(
                           labelText: 'Name (e.g. SB Classes / Resource Doc)',
+
                           border: OutlineInputBorder(),
                         ),
                       ),
+
                       const SizedBox(height: 8),
+
                       TextField(
                         controller: urlController,
+
                         decoration: const InputDecoration(
                           labelText: 'URL (e.g. https://...)',
+
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -3589,34 +3642,65 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
+
               actions: [
+                // ======================================================
+                // CLOSE
+                // ======================================================
+
                 TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                  },
+
                   child: const Text('CLOSE'),
                 ),
+
+                // ======================================================
+                // ADD
+                // ======================================================
                 FilledButton(
                   onPressed: () async {
                     final title = titleController.text.trim();
+
                     var url = urlController.text.trim();
 
-                    if (url.isNotEmpty) {
-                      // Prepend https:// if user didn't include protocol
-                      if (!url.startsWith('http://') &&
-                          !url.startsWith('https://')) {
-                        url = 'https://$url';
-                      }
+                    if (url.isEmpty) {
+                      return;
+                    }
 
-                      final entry = title.isNotEmpty ? '$title|$url' : url;
-                      links.add(entry);
-                      await prefs.setStringList('saved_links', links);
+                    // -----------------------------------------------
+                    // Add https:// if needed
+                    // -----------------------------------------------
 
-                      titleController.clear();
-                      urlController.clear();
+                    if (!url.startsWith('http://') &&
+                        !url.startsWith('https://')) {
+                      url = 'https://$url';
+                    }
 
-                      setDialogState(() {});
+                    // -----------------------------------------------
+                    // Save directly to SQLite
+                    // -----------------------------------------------
+
+                    await repository.addLink(title: title, url: url);
+
+                    // -----------------------------------------------
+                    // Reload links
+                    // -----------------------------------------------
+
+                    links = await repository.getAllLinks();
+
+                    titleController.clear();
+
+                    urlController.clear();
+
+                    setDialogState(() {});
+
+                    if (mounted) {
                       setState(() {});
                     }
                   },
+
                   child: const Text('ADD'),
                 ),
               ],
@@ -3718,39 +3802,73 @@ class _HomeScreenState extends State<HomeScreen> {
             // ============================================================
             FutureBuilder<List<dynamic>>(
               future: Future.wait([
-                SharedPreferences.getInstance().then((prefs) {
-                  return prefs.getStringList('saved_links') ??
-                      prefs.getStringList('youtube_links') ??
-                      <String>[];
-                }),
+                SavedLinksRepository.instance.getAllLinks(),
+
                 SharedPreferences.getInstance().then((prefs) {
                   return prefs.getBool('links_layout_is_list') ?? false;
                 }),
               ]),
               builder: (context, snapshot) {
-                // SAFELY CONVERT DYNAMIC LIST TO STRING LIST
-                final savedLinks =
-                    snapshot.data != null && snapshot.data![0] != null
-                    ? List<String>.from(snapshot.data![0] as List)
-                    : <String>[];
+                final savedLinks = snapshot.data != null
+                    ? List<SavedLink>.from(snapshot.data![0] as List)
+                    : <SavedLink>[];
 
                 final isListView = (snapshot.data?[1] as bool?) ?? false;
+
                 final theme = Theme.of(context);
 
-                // Function to toggle preference in SharedPreferences
+                // ==========================================================
+                // TOGGLE LAYOUT
+                // ==========================================================
+
                 Future<void> toggleLayout() async {
                   final prefs = await SharedPreferences.getInstance();
+
                   await prefs.setBool('links_layout_is_list', !isListView);
-                  setState(() {}); // Refresh UI
+
+                  if (mounted) {
+                    setState(() {});
+                  }
                 }
 
+                // ==========================================================
+                // LOADING
+                // ==========================================================
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 48,
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  );
+                }
+
+                // ==========================================================
+                // ERROR
+                // ==========================================================
+
+                if (snapshot.hasError) {
+                  return const SizedBox(
+                    height: 48,
+                    child: Center(child: Text('Unable to load saved links')),
+                  );
+                }
+
+                // ==========================================================
+                // VERTICAL LIST
+                // ==========================================================
+
                 if (isListView) {
-                  // ----------------------------------------------------
-                  // VERTICAL LIST LAYOUT
-                  // ----------------------------------------------------
                   return ExpansionTile(
                     leading: const Icon(Icons.link_rounded),
+
                     title: const Text('Saved Links'),
+
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -3762,8 +3880,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         const Icon(Icons.expand_more),
                       ],
                     ),
+
                     children: [
-                      // Vedabase Link
+                      // ======================================================
+                      // VEDABASE
+                      // ======================================================
+
                       ListTile(
                         leading: Container(
                           width: 24,
@@ -3784,15 +3906,20 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ),
+
                         title: const Text('Vedabase'),
+
                         onTap: () async {
                           Navigator.pop(context);
+
                           final uri = Uri.parse('https://vedabase.io/');
+
                           try {
                             final launched = await launchUrl(
                               uri,
                               mode: LaunchMode.externalApplication,
                             );
+
                             if (!launched && context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
@@ -3806,24 +3933,27 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                       ),
 
-                      // Saved User Links
-                      ...savedLinks.map((entry) {
-                        final parts = entry.split('|');
-                        final title = parts[0];
-                        final url = parts.length > 1 ? parts[1] : parts[0];
-
+                      // ======================================================
+                      // SAVED DATABASE LINKS
+                      // ======================================================
+                      ...savedLinks.map((link) {
                         return ListTile(
-                          leading: _getChipAvatar(url),
-                          title: Text(title),
+                          leading: _getChipAvatar(link.url),
+
+                          title: Text(link.title),
+
                           subtitle: Text(
-                            url,
+                            link.url,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall,
                           ),
+
                           onTap: () async {
                             Navigator.pop(context);
-                            final uri = Uri.parse(url);
+
+                            final uri = Uri.parse(link.url);
+
                             if (await canLaunchUrl(uri)) {
                               await launchUrl(
                                 uri,
@@ -3834,12 +3964,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         );
                       }),
 
-                      // Add Link Action Tile
+                      // ======================================================
+                      // ADD LINK
+                      // ======================================================
                       ListTile(
                         leading: Icon(
                           Icons.add_circle_outline,
                           color: theme.colorScheme.primary,
                         ),
+
                         title: Text(
                           'Add Link',
                           style: TextStyle(
@@ -3847,139 +3980,181 @@ class _HomeScreenState extends State<HomeScreen> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
+
                         onTap: () async {
                           Navigator.pop(context);
+
                           await _showManageLinksDialog(context);
+
+                          if (mounted) {
+                            setState(() {});
+                          }
                         },
                       ),
                     ],
                   );
-                } else {
-                  // ----------------------------------------------------
-                  // HORIZONTAL ROW LAYOUT
-                  // ----------------------------------------------------
-                  return SizedBox(
-                    height: 48,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      children: [
-                        // View Toggle Button
-                        IconButton(
-                          icon: const Icon(Icons.format_list_bulleted_rounded),
-                          tooltip: 'Switch to Vertical List View',
-                          onPressed: toggleLayout,
-                        ),
-                        const SizedBox(width: 4),
+                }
 
-                        // Vedabase Link Badge
-                        ActionChip(
-                          avatar: Container(
-                            width: 18,
-                            height: 18,
-                            decoration: BoxDecoration(
-                              color: Colors.amber,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Center(
-                              child: Text(
-                                'V',
-                                style: TextStyle(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 11,
-                                  fontFamily: 'Roboto',
-                                  height: 1.0,
-                                ),
+                // ==========================================================
+                // HORIZONTAL VIEW
+                // ==========================================================
+
+                return SizedBox(
+                  height: 48,
+
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+
+                    children: [
+                      // ======================================================
+                      // VIEW TOGGLE
+                      // ======================================================
+
+                      IconButton(
+                        icon: const Icon(Icons.format_list_bulleted_rounded),
+
+                        tooltip: 'Switch to Vertical List View',
+
+                        onPressed: toggleLayout,
+                      ),
+
+                      const SizedBox(width: 4),
+
+                      // ======================================================
+                      // VEDABASE
+                      // ======================================================
+                      ActionChip(
+                        avatar: Container(
+                          width: 18,
+                          height: 18,
+
+                          decoration: BoxDecoration(
+                            color: Colors.amber,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+
+                          child: const Center(
+                            child: Text(
+                              'V',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                                fontFamily: 'Roboto',
+                                height: 1.0,
                               ),
                             ),
                           ),
-                          label: const Text('Vedabase'),
-                          backgroundColor: theme.colorScheme.surface,
-                          side: BorderSide(
-                            color: theme.colorScheme.outlineVariant,
-                          ),
-                          onPressed: () async {
-                            Navigator.pop(context);
-                            final uri = Uri.parse('https://vedabase.io/');
-                            try {
-                              final launched = await launchUrl(
-                                uri,
-                                mode: LaunchMode.externalApplication,
+                        ),
+
+                        label: const Text('Vedabase'),
+
+                        backgroundColor: theme.colorScheme.surface,
+
+                        side: BorderSide(
+                          color: theme.colorScheme.outlineVariant,
+                        ),
+
+                        onPressed: () async {
+                          Navigator.pop(context);
+
+                          final uri = Uri.parse('https://vedabase.io/');
+
+                          try {
+                            final launched = await launchUrl(
+                              uri,
+                              mode: LaunchMode.externalApplication,
+                            );
+
+                            if (!launched && context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Could not open browser link'),
+                                ),
                               );
-                              if (!launched && context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Could not open browser link',
-                                    ),
-                                  ),
+                            }
+                          } catch (e) {
+                            debugPrint('Error launching URL: $e');
+                          }
+                        },
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      // ======================================================
+                      // DATABASE LINKS
+                      // ======================================================
+                      ...savedLinks.map((link) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8.0),
+
+                          child: ActionChip(
+                            avatar: _getChipAvatar(link.url),
+
+                            label: Text(link.title),
+
+                            backgroundColor: theme.colorScheme.surface,
+
+                            side: BorderSide(
+                              color: theme.colorScheme.outlineVariant,
+                            ),
+
+                            onPressed: () async {
+                              Navigator.pop(context);
+
+                              final uri = Uri.parse(link.url);
+
+                              if (await canLaunchUrl(uri)) {
+                                await launchUrl(
+                                  uri,
+                                  mode: LaunchMode.externalApplication,
                                 );
                               }
-                            } catch (e) {
-                              debugPrint('Error launching URL: $e');
-                            }
-                          },
+                            },
+                          ),
+                        );
+                      }),
+
+                      // ======================================================
+                      // ADD LINK
+                      // ======================================================
+                      ActionChip(
+                        avatar: Icon(
+                          Icons.add,
+                          color: theme.colorScheme.primary,
+                          size: 18,
                         ),
-                        const SizedBox(width: 8),
 
-                        // Stored Link Badges
-                        ...savedLinks.map((entry) {
-                          final parts = entry.split('|');
-                          final title = parts[0];
-                          final url = parts.length > 1 ? parts[1] : parts[0];
-
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8.0),
-                            child: ActionChip(
-                              avatar: _getChipAvatar(url),
-                              label: Text(title),
-                              backgroundColor: theme.colorScheme.surface,
-                              side: BorderSide(
-                                color: theme.colorScheme.outlineVariant,
-                              ),
-                              onPressed: () async {
-                                Navigator.pop(context);
-                                final uri = Uri.parse(url);
-                                if (await canLaunchUrl(uri)) {
-                                  await launchUrl(
-                                    uri,
-                                    mode: LaunchMode.externalApplication,
-                                  );
-                                }
-                              },
-                            ),
-                          );
-                        }),
-
-                        // Add Link Badge
-                        ActionChip(
-                          avatar: Icon(
-                            Icons.add,
+                        label: Text(
+                          'Add Link',
+                          style: TextStyle(
                             color: theme.colorScheme.primary,
-                            size: 18,
+                            fontWeight: FontWeight.bold,
                           ),
-                          label: Text(
-                            'Add Link',
-                            style: TextStyle(
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          backgroundColor: theme.colorScheme.primaryContainer
-                              .withOpacity(0.4),
-                          side: BorderSide(
-                            color: theme.colorScheme.primary.withOpacity(0.5),
-                          ),
-                          onPressed: () async {
-                            Navigator.pop(context);
-                            await _showManageLinksDialog(context);
-                          },
                         ),
-                      ],
-                    ),
-                  );
-                }
+
+                        backgroundColor: theme.colorScheme.primaryContainer
+                            .withOpacity(0.4),
+
+                        side: BorderSide(
+                          color: theme.colorScheme.primary.withOpacity(0.5),
+                        ),
+
+                        onPressed: () async {
+                          Navigator.pop(context);
+
+                          await _showManageLinksDialog(context);
+
+                          if (mounted) {
+                            setState(() {});
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                );
               },
             ),
             Padding(

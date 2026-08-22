@@ -1,8 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../repositories/daily_todo_repository.dart';
 
 class DailyTodoScreen extends StatefulWidget {
   const DailyTodoScreen({super.key});
@@ -13,17 +12,16 @@ class DailyTodoScreen extends StatefulWidget {
 
 class _DailyTodoScreenState extends State<DailyTodoScreen> {
   // ============================================================
-  // STORAGE
+  // REPOSITORY
   // ============================================================
 
-  static const String _tasksKey = 'daily_todo_tasks_v2';
-  static const String _completionDateKey = 'daily_todo_completion_date_v2';
+  final DailyTodoRepository _repository = DailyTodoRepository();
 
   // ============================================================
   // DATA
   // ============================================================
 
-  List<_TodoTask> _tasks = [];
+  List<DailyTodoTask> _tasks = [];
 
   bool _isLoading = true;
 
@@ -41,10 +39,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
   // DATE
   // ============================================================
 
-  String get _todayKey {
-    return DateFormat('yyyy-MM-dd').format(DateTime.now());
-  }
-
   String get _formattedDate {
     return DateFormat('EEEE, d MMMM').format(DateTime.now());
   }
@@ -55,45 +49,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
 
   Future<void> _loadTasks() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-
-      final storedTasks = prefs.getString(_tasksKey);
-      final lastCompletionDate = prefs.getString(_completionDateKey);
-
-      List<_TodoTask> loadedTasks = [];
-
-      if (storedTasks != null && storedTasks.isNotEmpty) {
-        try {
-          final decoded = jsonDecode(storedTasks);
-
-          if (decoded is List) {
-            loadedTasks = decoded
-                .map(
-                  (item) => _TodoTask.fromJson(Map<String, dynamic>.from(item)),
-                )
-                .toList();
-          }
-        } catch (e) {
-          debugPrint('Error decoding todo tasks: $e');
-        }
-      }
-
-      // ==========================================================
-      // NEW DAY
-      // ==========================================================
-
-      if (lastCompletionDate != _todayKey) {
-        loadedTasks = loadedTasks
-            .map((task) => task.copyWith(completed: false))
-            .toList();
-
-        await prefs.setString(_completionDateKey, _todayKey);
-
-        await prefs.setString(
-          _tasksKey,
-          jsonEncode(loadedTasks.map((task) => task.toJson()).toList()),
-        );
-      }
+      final loadedTasks = await _repository.getTasks();
 
       if (!mounted) {
         return;
@@ -104,32 +60,13 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      debugPrint('Error loading daily todo: $e');
+      debugPrint('Error loading daily todo tasks: $e');
 
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
       }
-    }
-  }
-
-  // ============================================================
-  // SAVE
-  // ============================================================
-
-  Future<void> _saveTasks() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      await prefs.setString(
-        _tasksKey,
-        jsonEncode(_tasks.map((task) => task.toJson()).toList()),
-      );
-
-      await prefs.setString(_completionDateKey, _todayKey);
-    } catch (e) {
-      debugPrint('Error saving todo tasks: $e');
     }
   }
 
@@ -153,27 +90,36 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
   // TOGGLE
   // ============================================================
 
-  Future<void> _toggleTask(_TodoTask task) async {
+  Future<void> _toggleTask(DailyTodoTask task) async {
     final index = _tasks.indexWhere((item) => item.id == task.id);
 
     if (index == -1) {
       return;
     }
 
+    final updatedTask = task.copyWith(
+      completed: !task.completed,
+      completionDate: _repository.todayKey,
+    );
+
     setState(() {
-      _tasks[index] = _tasks[index].copyWith(
-        completed: !_tasks[index].completed,
-      );
+      _tasks[index] = updatedTask;
     });
 
-    await _saveTasks();
+    try {
+      await _repository.setCompleted(task, updatedTask.completed);
+    } catch (e) {
+      debugPrint('Error toggling task: $e');
+
+      await _loadTasks();
+    }
   }
 
   // ============================================================
   // DELETE
   // ============================================================
 
-  Future<void> _deleteTask(_TodoTask task) async {
+  Future<void> _deleteTask(DailyTodoTask task) async {
     final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
@@ -206,14 +152,14 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
       _tasks.removeWhere((item) => item.id == task.id);
     });
 
-    await _saveTasks();
+    await _repository.deleteTask(task.id);
   }
 
   // ============================================================
   // EDIT
   // ============================================================
 
-  Future<void> _editTask(_TodoTask task) async {
+  Future<void> _editTask(DailyTodoTask task) async {
     final result = await _showTaskDialog(existingTask: task);
 
     if (result == null) {
@@ -226,11 +172,18 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
       return;
     }
 
+    final updatedTask = result.copyWith(
+      id: task.id,
+      completed: task.completed,
+      completionDate: task.completionDate,
+      sortOrder: task.sortOrder,
+    );
+
     setState(() {
-      _tasks[index] = result.copyWith(id: task.id, completed: task.completed);
+      _tasks[index] = updatedTask;
     });
 
-    await _saveTasks();
+    await _repository.updateTask(updatedTask);
   }
 
   // ============================================================
@@ -248,11 +201,19 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
       _tasks.add(task);
     });
 
-    await _saveTasks();
+    await _repository.addTask(
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      category: task.category,
+      emoji: task.emoji,
+    );
+
+    await _loadTasks();
   }
 
   // ============================================================
-  // TEXT INPUT DIALOG HELPER
+  // TEXT INPUT DIALOG
   // ============================================================
 
   Future<String?> _showTextInputDialog(
@@ -261,6 +222,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
     required String hint,
   }) {
     final controller = TextEditingController();
+
     return showDialog<String>(
       context: context,
       builder: (dialogContext) {
@@ -290,22 +252,31 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
   // TASK DIALOG
   // ============================================================
 
-  Future<_TodoTask?> _showTaskDialog({_TodoTask? existingTask}) async {
+  Future<DailyTodoTask?> _showTaskDialog({DailyTodoTask? existingTask}) async {
     final titleController = TextEditingController(
       text: existingTask?.title ?? '',
     );
+
     final descriptionController = TextEditingController(
       text: existingTask?.description ?? '',
     );
 
-    // Pre-defined categories + custom option support
+    // ----------------------------------------------------------
+    // CATEGORIES
+    // ----------------------------------------------------------
+
     List<String> categories = ['Morning', 'Day', 'Evening'];
+
     String selectedCategory = existingTask?.category ?? 'Morning';
+
     if (!categories.contains(selectedCategory)) {
       categories.add(selectedCategory);
     }
 
-    // Pre-defined emojis + custom option support
+    // ----------------------------------------------------------
+    // EMOJIS
+    // ----------------------------------------------------------
+
     List<String> emojis = [
       '🙏',
       '📿',
@@ -320,14 +291,16 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
       '🛕',
       '☀️',
     ];
+
     String selectedEmoji = existingTask?.emoji ?? '🙏';
+
     if (!emojis.contains(selectedEmoji)) {
       emojis.add(selectedEmoji);
     }
 
     final formKey = GlobalKey<FormState>();
 
-    final result = await showModalBottomSheet<_TodoTask>(
+    final result = await showModalBottomSheet<DailyTodoTask>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -352,6 +325,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                         style: Theme.of(context).textTheme.headlineSmall
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
+
                       const SizedBox(height: 20),
 
                       // TITLE
@@ -367,11 +341,15 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        validator: (value) =>
-                            (value == null || value.trim().isEmpty)
-                            ? 'Please enter a task'
-                            : null,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter a task';
+                          }
+
+                          return null;
+                        },
                       ),
+
                       const SizedBox(height: 14),
 
                       // DESCRIPTION
@@ -388,6 +366,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                           ),
                         ),
                       ),
+
                       const SizedBox(height: 20),
 
                       // CATEGORY
@@ -397,7 +376,9 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+
                       const SizedBox(height: 10),
+
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
@@ -414,10 +395,14 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                                   ? '🌙'
                                   : '🏷️',
                               selected: selectedCategory == cat,
-                              onTap: () =>
-                                  setSheetState(() => selectedCategory = cat),
+                              onTap: () {
+                                setSheetState(() {
+                                  selectedCategory = cat;
+                                });
+                              },
                             ),
                           ),
+
                           ActionChip(
                             avatar: const Icon(Icons.add, size: 18),
                             label: const Text('Custom'),
@@ -427,13 +412,16 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                                 title: 'Add Custom Category',
                                 hint: 'Category name',
                               );
+
                               if (customCat != null &&
                                   customCat.trim().isNotEmpty) {
                                 final trimmed = customCat.trim();
+
                                 setSheetState(() {
                                   if (!categories.contains(trimmed)) {
                                     categories.add(trimmed);
                                   }
+
                                   selectedCategory = trimmed;
                                 });
                               }
@@ -441,6 +429,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                           ),
                         ],
                       ),
+
                       const SizedBox(height: 20),
 
                       // ICON
@@ -450,17 +439,23 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+
                       const SizedBox(height: 10),
+
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: [
                           ...emojis.map((emoji) {
                             final selected = selectedEmoji == emoji;
+
                             return InkWell(
                               borderRadius: BorderRadius.circular(12),
-                              onTap: () =>
-                                  setSheetState(() => selectedEmoji = emoji),
+                              onTap: () {
+                                setSheetState(() {
+                                  selectedEmoji = emoji;
+                                });
+                              },
                               child: AnimatedContainer(
                                 duration: const Duration(milliseconds: 150),
                                 width: 48,
@@ -491,6 +486,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                               ),
                             );
                           }),
+
                           InkWell(
                             borderRadius: BorderRadius.circular(12),
                             onTap: () async {
@@ -499,13 +495,16 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                                 title: 'Enter Custom Emoji',
                                 hint: 'Paste/Type Emoji (e.g. 🎯)',
                               );
+
                               if (customEmoji != null &&
                                   customEmoji.trim().isNotEmpty) {
                                 final trimmed = customEmoji.trim();
+
                                 setSheetState(() {
                                   if (!emojis.contains(trimmed)) {
                                     emojis.add(trimmed);
                                   }
+
                                   selectedEmoji = trimmed;
                                 });
                               }
@@ -528,6 +527,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                           ),
                         ],
                       ),
+
                       const SizedBox(height: 26),
 
                       // SAVE
@@ -536,8 +536,11 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                         height: 52,
                         child: FilledButton.icon(
                           onPressed: () {
-                            if (!formKey.currentState!.validate()) return;
-                            final task = _TodoTask(
+                            if (!formKey.currentState!.validate()) {
+                              return;
+                            }
+
+                            final task = DailyTodoTask(
                               id:
                                   existingTask?.id ??
                                   DateTime.now().microsecondsSinceEpoch
@@ -547,7 +550,12 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                               category: selectedCategory,
                               emoji: selectedEmoji,
                               completed: existingTask?.completed ?? false,
+                              completionDate:
+                                  existingTask?.completionDate ??
+                                  _repository.todayKey,
+                              sortOrder: existingTask?.sortOrder ?? 0,
                             );
+
                             Navigator.pop(sheetContext, task);
                           },
                           icon: Icon(
@@ -666,7 +674,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
       _tasks.removeWhere((task) => task.completed);
     });
 
-    await _saveTasks();
+    await _repository.clearCompleted();
   }
 
   // ============================================================
@@ -703,10 +711,17 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
     }
 
     setState(() {
-      _tasks = _tasks.map((task) => task.copyWith(completed: false)).toList();
+      _tasks = _tasks
+          .map(
+            (task) => task.copyWith(
+              completed: false,
+              completionDate: _repository.todayKey,
+            ),
+          )
+          .toList();
     });
 
-    await _saveTasks();
+    await _repository.resetToday();
   }
 
   // ============================================================
@@ -742,9 +757,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
 
     categoryTasks.insert(newIndex, movedTask);
 
-    final reorderedIds = categoryTasks.map((task) => task.id).toSet();
-
-    final newTasks = <_TodoTask>[];
+    final newTasks = <DailyTodoTask>[];
 
     int replacementIndex = 0;
 
@@ -760,20 +773,18 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
       }
     }
 
-    reorderedIds.length;
-
     setState(() {
       _tasks = newTasks;
     });
 
-    await _saveTasks();
+    await _repository.reorderTasks(_tasks);
   }
 
   // ============================================================
   // TASKS FOR CATEGORY
   // ============================================================
 
-  List<_TodoTask> _tasksForCategory(
+  List<DailyTodoTask> _tasksForCategory(
     String category, {
     required bool completed,
   }) {
@@ -796,7 +807,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // Dynamic category extraction to support custom categories
     final activeCategories = _tasks
         .where((task) => !task.completed)
         .map((task) => task.category)
@@ -852,9 +862,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
         ],
       ),
 
-      // ==========================================================
-      // BODY
-      // ==========================================================
       body: RefreshIndicator(
         onRefresh: _loadTasks,
         child: _tasks.isEmpty
@@ -862,9 +869,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
             : CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
-                  // ------------------------------------------------
-                  // PROGRESS
-                  // ------------------------------------------------
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -872,9 +876,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                     ),
                   ),
 
-                  // ------------------------------------------------
-                  // TASKS (DYNAMIC CATEGORY LIST)
-                  // ------------------------------------------------
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
                     sliver: SliverList(
@@ -892,6 +893,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                                 : '🏷️',
                           ),
                         ),
+
                         if (_completedCount > 0)
                           _buildCompletedSection(context),
                       ]),
@@ -901,9 +903,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
               ),
       ),
 
-      // ==========================================================
-      // ADD
-      // ==========================================================
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addTask,
         icon: const Icon(Icons.add),
@@ -1017,9 +1016,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ------------------------------------------------------
-          // CATEGORY HEADER
-          // ------------------------------------------------------
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 9),
             child: Row(
@@ -1058,9 +1054,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
 
                 const Spacer(),
 
-                // ------------------------------------------------
-                // DRAG HINT
-                // ------------------------------------------------
                 Icon(
                   Icons.swap_vert_rounded,
                   size: 20,
@@ -1070,9 +1063,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
             ),
           ),
 
-          // ------------------------------------------------------
-          // REORDERABLE LIST
-          // ------------------------------------------------------
           _buildReorderableCategory(context, category, pendingTasks),
         ],
       ),
@@ -1086,7 +1076,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
   Widget _buildReorderableCategory(
     BuildContext context,
     String category,
-    List<_TodoTask> tasks,
+    List<DailyTodoTask> tasks,
   ) {
     return ReorderableListView.builder(
       shrinkWrap: true,
@@ -1114,7 +1104,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
 
   Widget _buildTodoCard(
     BuildContext context,
-    _TodoTask task, {
+    DailyTodoTask task, {
     bool showDragHandle = false,
   }) {
     final theme = Theme.of(context);
@@ -1155,7 +1145,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
           _tasks.removeWhere((item) => item.id == task.id);
         });
 
-        await _saveTasks();
+        await _repository.deleteTask(task.id);
       },
 
       background: Container(
@@ -1182,9 +1172,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
             child: Row(
               children: [
-                // ------------------------------------------------
                 // CHECKBOX
-                // ------------------------------------------------
                 _buildCheckbox(
                   context,
                   completed: task.completed,
@@ -1193,9 +1181,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
 
                 const SizedBox(width: 12),
 
-                // ------------------------------------------------
                 // EMOJI
-                // ------------------------------------------------
                 Container(
                   width: 42,
                   height: 42,
@@ -1209,9 +1195,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
 
                 const SizedBox(width: 12),
 
-                // ------------------------------------------------
                 // TEXT
-                // ------------------------------------------------
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1247,9 +1231,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                   ),
                 ),
 
-                // ------------------------------------------------
-                // DRAG HANDLE
-                // ------------------------------------------------
                 if (showDragHandle) ...[
                   const SizedBox(width: 6),
 
@@ -1264,9 +1245,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                     ),
                   ),
                 ] else ...[
-                  // ------------------------------------------------
-                  // MENU
-                  // ------------------------------------------------
                   IconButton(
                     tooltip: 'Task options',
                     visualDensity: VisualDensity.compact,
@@ -1289,7 +1267,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
   // GET PENDING INDEX
   // ============================================================
 
-  int _getPendingIndex(_TodoTask task) {
+  int _getPendingIndex(DailyTodoTask task) {
     final pendingTasks = _tasksForCategory(task.category, completed: false);
 
     return pendingTasks.indexWhere((item) => item.id == task.id);
@@ -1455,7 +1433,7 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
   // TASK ACTIONS
   // ============================================================
 
-  Future<void> _showTaskActions(_TodoTask task) async {
+  Future<void> _showTaskActions(DailyTodoTask task) async {
     final result = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -1518,91 +1496,5 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
         await _deleteTask(task);
         break;
     }
-  }
-}
-
-// ============================================================================
-// TODO MODEL
-// ============================================================================
-
-class _TodoTask {
-  final String id;
-
-  final String title;
-
-  final String description;
-
-  final String category;
-
-  final String emoji;
-
-  final bool completed;
-
-  const _TodoTask({
-    required this.id,
-    required this.title,
-    required this.description,
-    required this.category,
-    required this.emoji,
-    required this.completed,
-  });
-
-  // --------------------------------------------------------------------------
-  // COPY
-  // --------------------------------------------------------------------------
-
-  _TodoTask copyWith({
-    String? id,
-    String? title,
-    String? description,
-    String? category,
-    String? emoji,
-    bool? completed,
-  }) {
-    return _TodoTask(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      description: description ?? this.description,
-      category: category ?? this.category,
-      emoji: emoji ?? this.emoji,
-      completed: completed ?? this.completed,
-    );
-  }
-
-  // --------------------------------------------------------------------------
-  // JSON
-  // --------------------------------------------------------------------------
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'title': title,
-      'description': description,
-      'category': category,
-      'emoji': emoji,
-      'completed': completed,
-    };
-  }
-
-  // --------------------------------------------------------------------------
-  // FROM JSON
-  // --------------------------------------------------------------------------
-
-  factory _TodoTask.fromJson(Map<String, dynamic> json) {
-    return _TodoTask(
-      id:
-          json['id']?.toString() ??
-          DateTime.now().microsecondsSinceEpoch.toString(),
-
-      title: json['title']?.toString() ?? '',
-
-      description: json['description']?.toString() ?? '',
-
-      category: json['category']?.toString() ?? 'Morning',
-
-      emoji: json['emoji']?.toString() ?? '🙏',
-
-      completed: json['completed'] == true,
-    );
   }
 }
