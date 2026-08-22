@@ -8,6 +8,7 @@ import 'package:bhaktichart/features/todo/daily_todo_screen.dart';
 import 'package:bhaktichart/features/learning_tracker/learning_tracker_screen.dart';
 import 'package:bhaktichart/models/aarti_type_model.dart';
 import 'package:bhaktichart/models/daily_aarti_model.dart';
+import 'package:bhaktichart/features/mantra_counter/mantra_counter_screen.dart';
 import 'package:bhaktichart/models/daily_sadhana_model.dart';
 import 'package:bhaktichart/models/day_note_model.dart';
 import 'package:bhaktichart/models/goal_model.dart';
@@ -3709,33 +3710,62 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
 
             // ============================================================
-            // HORIZONTAL LINKS ROW (VEDABASE + YOUTUBE LINKS + ADD BUTTON)
+            // TOGGLEABLE LINKS SECTION (HORIZONTAL ROW OR VERTICAL LIST)
             // ============================================================
-            SizedBox(
-              height: 48,
-              child: FutureBuilder<List<String>>(
-                future: SharedPreferences.getInstance().then((prefs) {
-                  // Fetches saved_links, with fallback to youtube_links for backward compatibility
+            FutureBuilder<List<dynamic>>(
+              future: Future.wait([
+                SharedPreferences.getInstance().then((prefs) {
                   return prefs.getStringList('saved_links') ??
                       prefs.getStringList('youtube_links') ??
-                      [];
+                      <String>[];
                 }),
-                builder: (context, snapshot) {
-                  final savedLinks = snapshot.data ?? [];
-                  final theme = Theme.of(context);
+                SharedPreferences.getInstance().then((prefs) {
+                  return prefs.getBool('links_layout_is_list') ?? false;
+                }),
+              ]),
+              builder: (context, snapshot) {
+                // SAFELY CONVERT DYNAMIC LIST TO STRING LIST
+                final savedLinks =
+                    snapshot.data != null && snapshot.data![0] != null
+                    ? List<String>.from(snapshot.data![0] as List)
+                    : <String>[];
 
-                  return ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                final isListView = (snapshot.data?[1] as bool?) ?? false;
+                final theme = Theme.of(context);
+
+                // Function to toggle preference in SharedPreferences
+                Future<void> toggleLayout() async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('links_layout_is_list', !isListView);
+                  setState(() {}); // Refresh UI
+                }
+
+                if (isListView) {
+                  // ----------------------------------------------------
+                  // VERTICAL LIST LAYOUT
+                  // ----------------------------------------------------
+                  return ExpansionTile(
+                    leading: const Icon(Icons.link_rounded),
+                    title: const Text('Saved Links'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.view_array_outlined),
+                          tooltip: 'Switch to Horizontal View',
+                          onPressed: toggleLayout,
+                        ),
+                        const Icon(Icons.expand_more),
+                      ],
+                    ),
                     children: [
-                      // Vedabase Link Badge
-                      ActionChip(
-                        avatar: Container(
-                          width: 18,
-                          height: 18,
+                      // Vedabase Link
+                      ListTile(
+                        leading: Container(
+                          width: 24,
+                          height: 24,
                           decoration: BoxDecoration(
-                            color:
-                                Colors.amber, // Golden/orange book cover tone
+                            color: Colors.amber,
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: const Center(
@@ -3744,22 +3774,16 @@ class _HomeScreenState extends State<HomeScreen> {
                               style: TextStyle(
                                 color: Colors.black,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 11,
+                                fontSize: 13,
                                 fontFamily: 'Roboto',
-                                height: 1.0,
                               ),
                             ),
                           ),
                         ),
-                        label: const Text('Vedabase'),
-                        backgroundColor: theme.colorScheme.surface,
-                        side: BorderSide(
-                          color: theme.colorScheme.outlineVariant,
-                        ),
-                        onPressed: () async {
+                        title: const Text('Vedabase'),
+                        onTap: () async {
                           Navigator.pop(context);
                           final uri = Uri.parse('https://vedabase.io/');
-
                           try {
                             final launched = await launchUrl(
                               uri,
@@ -3777,65 +3801,182 @@ class _HomeScreenState extends State<HomeScreen> {
                           }
                         },
                       ),
-                      const SizedBox(width: 8),
 
-                      // Stored Link Badges (YouTube & General Websites)
+                      // Saved User Links
                       ...savedLinks.map((entry) {
                         final parts = entry.split('|');
                         final title = parts[0];
                         final url = parts.length > 1 ? parts[1] : parts[0];
 
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8.0),
-                          child: ActionChip(
-                            avatar: _getChipAvatar(url),
-                            label: Text(title),
-                            backgroundColor: theme.colorScheme.surface,
-                            side: BorderSide(
-                              color: theme.colorScheme.outlineVariant,
-                            ),
-                            onPressed: () async {
-                              Navigator.pop(context);
-                              final uri = Uri.parse(url);
-                              if (await canLaunchUrl(uri)) {
-                                await launchUrl(
-                                  uri,
-                                  mode: LaunchMode.externalApplication,
-                                );
-                              }
-                            },
+                        return ListTile(
+                          leading: _getChipAvatar(url),
+                          title: Text(title),
+                          subtitle: Text(
+                            url,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall,
                           ),
+                          onTap: () async {
+                            Navigator.pop(context);
+                            final uri = Uri.parse(url);
+                            if (await canLaunchUrl(uri)) {
+                              await launchUrl(
+                                uri,
+                                mode: LaunchMode.externalApplication,
+                              );
+                            }
+                          },
                         );
                       }),
 
-                      // Add Link Badge (At the end of the horizontal row)
-                      ActionChip(
-                        avatar: Icon(
-                          Icons.add,
+                      // Add Link Action Tile
+                      ListTile(
+                        leading: Icon(
+                          Icons.add_circle_outline,
                           color: theme.colorScheme.primary,
-                          size: 18,
                         ),
-                        label: Text(
+                        title: Text(
                           'Add Link',
                           style: TextStyle(
                             color: theme.colorScheme.primary,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        backgroundColor: theme.colorScheme.primaryContainer
-                            .withOpacity(0.4),
-                        side: BorderSide(
-                          color: theme.colorScheme.primary.withOpacity(0.5),
-                        ),
-                        onPressed: () async {
+                        onTap: () async {
                           Navigator.pop(context);
                           await _showManageLinksDialog(context);
                         },
                       ),
                     ],
                   );
-                },
-              ),
+                } else {
+                  // ----------------------------------------------------
+                  // HORIZONTAL ROW LAYOUT
+                  // ----------------------------------------------------
+                  return SizedBox(
+                    height: 48,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      children: [
+                        // View Toggle Button
+                        IconButton(
+                          icon: const Icon(Icons.format_list_bulleted_rounded),
+                          tooltip: 'Switch to Vertical List View',
+                          onPressed: toggleLayout,
+                        ),
+                        const SizedBox(width: 4),
+
+                        // Vedabase Link Badge
+                        ActionChip(
+                          avatar: Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: Colors.amber,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Center(
+                              child: Text(
+                                'V',
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                  fontFamily: 'Roboto',
+                                  height: 1.0,
+                                ),
+                              ),
+                            ),
+                          ),
+                          label: const Text('Vedabase'),
+                          backgroundColor: theme.colorScheme.surface,
+                          side: BorderSide(
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                          onPressed: () async {
+                            Navigator.pop(context);
+                            final uri = Uri.parse('https://vedabase.io/');
+                            try {
+                              final launched = await launchUrl(
+                                uri,
+                                mode: LaunchMode.externalApplication,
+                              );
+                              if (!launched && context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Could not open browser link',
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              debugPrint('Error launching URL: $e');
+                            }
+                          },
+                        ),
+                        const SizedBox(width: 8),
+
+                        // Stored Link Badges
+                        ...savedLinks.map((entry) {
+                          final parts = entry.split('|');
+                          final title = parts[0];
+                          final url = parts.length > 1 ? parts[1] : parts[0];
+
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: ActionChip(
+                              avatar: _getChipAvatar(url),
+                              label: Text(title),
+                              backgroundColor: theme.colorScheme.surface,
+                              side: BorderSide(
+                                color: theme.colorScheme.outlineVariant,
+                              ),
+                              onPressed: () async {
+                                Navigator.pop(context);
+                                final uri = Uri.parse(url);
+                                if (await canLaunchUrl(uri)) {
+                                  await launchUrl(
+                                    uri,
+                                    mode: LaunchMode.externalApplication,
+                                  );
+                                }
+                              },
+                            ),
+                          );
+                        }),
+
+                        // Add Link Badge
+                        ActionChip(
+                          avatar: Icon(
+                            Icons.add,
+                            color: theme.colorScheme.primary,
+                            size: 18,
+                          ),
+                          label: Text(
+                            'Add Link',
+                            style: TextStyle(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          backgroundColor: theme.colorScheme.primaryContainer
+                              .withOpacity(0.4),
+                          side: BorderSide(
+                            color: theme.colorScheme.primary.withOpacity(0.5),
+                          ),
+                          onPressed: () async {
+                            Navigator.pop(context);
+                            await _showManageLinksDialog(context);
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                }
+              },
             ),
             Padding(
               padding: const EdgeInsets.symmetric(
@@ -3916,12 +4057,28 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
 
             const Divider(),
+
+            ListTile(
+              leading: const Icon(Icons.self_improvement_rounded),
+              title: const Text('Mantra Counter'),
+              subtitle: const Text('Hare Krishna • 108 mantras'),
+              onTap: () async {
+                Navigator.pop(context);
+
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const MantraCounterScreen(),
+                  ),
+                );
+              },
+            ),
             // Daily Routine
             ListTile(
               leading: const Icon(Icons.schedule_rounded),
               title: const Text('Daily Routine'),
               onTap: () async {
-                Navigator.pop(context); // Close Drawer
+                Navigator.pop(context);
                 if (_userId == null) return;
 
                 await Navigator.push(
@@ -4024,8 +4181,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-      ),
-      // ============================================================
+      ), // ============================================================
       // APP BAR
       // ============================================================
       appBar: AppBar(

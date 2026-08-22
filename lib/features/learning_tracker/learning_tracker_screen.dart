@@ -527,13 +527,26 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
   // ============================================================
 
   Future<void> _showShlokaDialog({LearningShloka? shloka}) async {
-    LearningBook? targetBook = _selectedBook;
+    // IMPORTANT:
+    // - While editing, always resolve the book from the shloka itself.
+    //   This prevents an "All Books" view from editing the shloka against
+    //   whichever book happens to be selected in the header.
+    // - While adding from "All Books", do not silently choose the first book.
+    //   The dialog lets the user explicitly choose the target book.
+    LearningBook? targetBook;
 
-    if (targetBook == null) return;
+    if (shloka != null) {
+      targetBook = _books.cast<LearningBook?>().firstWhere(
+        (book) => book?.id == shloka.bookId,
+        orElse: () => null,
+      );
 
-    if (targetBook.id == -1) {
-      if (_books.isEmpty) return;
-      targetBook = _books.first;
+      if (targetBook == null) {
+        _showError('The book containing this shloka could not be found.');
+        return;
+      }
+    } else if (_selectedBook != null && _selectedBook!.id != -1) {
+      targetBook = _selectedBook;
     }
 
     final referenceController = TextEditingController(
@@ -547,6 +560,15 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
 
     LearningStatus status = shloka?.status ?? LearningStatus.notLearned;
 
+    // For "Others", automatically generate the next reference. This is done
+    // only for new shlokas; editing never changes the existing reference
+    // unless the user explicitly changes it.
+    if (shloka == null &&
+        targetBook != null &&
+        targetBook.name.trim().toLowerCase() == 'others') {
+      referenceController.text = await _getNextOthersReference();
+    }
+
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -556,7 +578,8 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
             final colorScheme = Theme.of(context).colorScheme;
 
             return _ShlokaDialogContent(
-              book: targetBook!,
+              book: targetBook,
+              books: _books,
               shloka: shloka,
               referenceController: referenceController,
               shlokaController: shlokaController,
@@ -564,6 +587,31 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
               urlController: urlController,
               status: status,
               colorScheme: colorScheme,
+              onBookChanged: shloka == null
+                  ? (book) async {
+                      setDialogState(() {
+                        targetBook = book;
+                        if (book == null ||
+                            book.name.trim().toLowerCase() != 'others') {
+                          referenceController.clear();
+                        }
+                      });
+
+                      if (book != null &&
+                          book.name.trim().toLowerCase() == 'others') {
+                        final nextReference = await _getNextOthersReference();
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() {
+                          // Only update while the selected book is still
+                          // Others; this avoids a late async result changing
+                          // the reference after the user switched books.
+                          if (targetBook?.id == book.id) {
+                            referenceController.text = nextReference;
+                          }
+                        });
+                      }
+                    }
+                  : null,
               onStatusChanged: (value) {
                 setDialogState(() {
                   status = value;
@@ -572,13 +620,28 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
               onSave: ({required String? error}) async {
                 if (error != null) return;
 
+                final book = targetBook;
+                if (book == null || book.id == null) {
+                  throw Exception('Please select a book.');
+                }
+
                 try {
                   if (shloka == null) {
+                    var reference = referenceController.text.trim();
+
+                    // Always assign the next free reference in Others.
+                    // This intentionally ignores whatever duplicate/manual
+                    // reference was entered for Others.
+                    if (book.name.trim().toLowerCase() == 'others') {
+                      reference = await _getNextOthersReference();
+                      referenceController.text = reference;
+                    }
+
                     await _repository.addShloka(
                       LearningShloka(
                         userId: widget.userId,
-                        bookId: targetBook!.id!,
-                        reference: referenceController.text.trim(),
+                        bookId: book.id!,
+                        reference: reference,
                         shloka: shlokaController.text.trim(),
                         translation: translationController.text.trim().isEmpty
                             ? null
@@ -591,6 +654,9 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                       ),
                     );
                   } else {
+                    // Keep the original shloka's bookId. Editing from
+                    // "All Books" must NEVER move/update it using the
+                    // currently selected header book.
                     await _repository.updateShloka(
                       shloka.copyWith(
                         reference: referenceController.text.trim(),
@@ -627,8 +693,47 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
     );
 
     if (result == true) {
-      await _loadShlokas();
+      await _loadBooks();
     }
+  }
+
+  /// Returns the next available numeric reference for the "Others" book.
+  ///
+  /// "Others" uses one reference level, so references are 1, 2, 3...
+  /// Existing non-numeric/invalid references are ignored. The returned value
+  /// is always one greater than the highest numeric reference currently used.
+  /// Returns the next available numeric reference for the "Others" book.
+  ///
+  /// "Others" uses one reference level, so references are 1, 2, 3...
+  /// Existing non-numeric/invalid references are ignored. The returned value
+  /// is always one greater than the highest numeric reference currently used.
+  Future<String> _getNextOthersReference() async {
+    final othersBook = _books.cast<LearningBook?>().firstWhere(
+      (book) => book?.name.trim().toLowerCase() == 'others',
+      orElse: () => null,
+    );
+
+    if (othersBook?.id == null) return '1';
+
+    // Read directly from the repository rather than _shlokas because the
+    // current screen may be filtered to another book (or to All Books).
+    final othersShlokas = await _repository.getShlokas(
+      userId: widget.userId,
+      bookId: othersBook!.id!,
+      status: null,
+    );
+
+    var maxReference = 0;
+
+    for (final item in othersShlokas) {
+      final reference = item.reference.trim();
+      final number = int.tryParse(reference);
+      if (number != null && number > maxReference) {
+        maxReference = number;
+      }
+    }
+
+    return '${maxReference + 1}';
   }
 
   // ============================================================
@@ -1743,7 +1848,8 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
 // ============================================================================
 
 class _ShlokaDialogContent extends StatefulWidget {
-  final LearningBook book;
+  final LearningBook? book;
+  final List<LearningBook> books;
   final LearningShloka? shloka;
 
   final TextEditingController referenceController;
@@ -1755,10 +1861,12 @@ class _ShlokaDialogContent extends StatefulWidget {
   final ColorScheme colorScheme;
 
   final ValueChanged<LearningStatus> onStatusChanged;
+  final Future<void> Function(LearningBook?)? onBookChanged;
   final Future<void> Function({required String? error}) onSave;
 
   const _ShlokaDialogContent({
     required this.book,
+    required this.books,
     required this.shloka,
     required this.referenceController,
     required this.shlokaController,
@@ -1767,6 +1875,7 @@ class _ShlokaDialogContent extends StatefulWidget {
     required this.status,
     required this.colorScheme,
     required this.onStatusChanged,
+    required this.onBookChanged,
     required this.onSave,
   });
 
@@ -1785,11 +1894,14 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
     if (reference.isEmpty) return 'Please enter a reference.';
     if (shloka.isEmpty) return 'Please enter the shloka text.';
 
+    final book = widget.book;
+    if (book == null) return 'Please select a book.';
+
     final parts = reference.split('.');
 
-    if (parts.length != widget.book.levelCount) {
-      return 'Reference must contain ${widget.book.levelCount} level'
-          '${widget.book.levelCount == 1 ? '' : 's'}. Example: ${_referenceHint(widget.book.levelCount)}';
+    if (parts.length != book.levelCount) {
+      return 'Reference must contain ${book.levelCount} level'
+          '${book.levelCount == 1 ? '' : 's'}. Example: ${_referenceHint(book.levelCount)}';
     }
 
     for (final part in parts) {
@@ -1888,12 +2000,13 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                Text(
-                  widget.book.name,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
+                if (widget.book != null)
+                  Text(
+                    widget.book!.name,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -1915,6 +2028,52 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                 _buildErrorBanner(),
                 const SizedBox(height: 16),
               ],
+              if (widget.shloka == null && widget.onBookChanged != null) ...[
+                _sectionHeader(
+                  icon: Icons.menu_book_outlined,
+                  title: 'Book',
+                  subtitle: 'Choose where this shloka should be saved.',
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<int>(
+                  value: widget.book?.id,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Book',
+                    hintText: 'Select a book',
+                    filled: true,
+                    fillColor: colorScheme.surfaceContainerHighest.withOpacity(
+                      0.35,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  items: widget.books
+                      .where((book) => book.id != null)
+                      .map(
+                        (book) => DropdownMenuItem<int>(
+                          value: book.id!,
+                          child: Text(
+                            book.name,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: _saving
+                      ? null
+                      : (id) {
+                          if (id == null) return;
+                          final selected = widget.books.firstWhere(
+                            (book) => book.id == id,
+                          );
+                          widget.onBookChanged!(selected);
+                        },
+                ),
+                const SizedBox(height: 24),
+              ],
               _sectionHeader(
                 icon: Icons.info_outline,
                 title: 'Basic Information',
@@ -1923,10 +2082,13 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
               const SizedBox(height: 14),
               TextField(
                 controller: widget.referenceController,
+                enabled: widget.book != null && !_saving,
                 textInputAction: TextInputAction.next,
                 decoration: InputDecoration(
                   labelText: 'Reference',
-                  hintText: _referenceHint(widget.book.levelCount),
+                  hintText: widget.book == null
+                      ? 'Select a book first'
+                      : _referenceHint(widget.book!.levelCount),
                   filled: true,
                   fillColor: colorScheme.surfaceContainerHighest.withOpacity(
                     0.35,
@@ -2184,6 +2346,7 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
 
   Widget _referenceInfo() {
     final colorScheme = widget.colorScheme;
+    final book = widget.book;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -2201,9 +2364,11 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Use ${widget.book.levelCount} level'
-              '${widget.book.levelCount == 1 ? '' : 's'} for this book. Example: '
-              '${_referenceHint(widget.book.levelCount)}',
+              book == null
+                  ? 'Select a book to see the reference format.'
+                  : 'Use ${book.levelCount} level'
+                        '${book.levelCount == 1 ? '' : 's'} for this book. Example: '
+                        '${_referenceHint(book.levelCount)}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: colorScheme.onPrimaryContainer,
               ),

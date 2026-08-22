@@ -76,13 +76,6 @@ class _RemindersScreenState extends State<RemindersScreen> {
   }
 
   Future<void> _addReminder() async {
-    if (_sadhanaTypes.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No Sadhana types found.')));
-      return;
-    }
-
     await _showReminderEditor();
   }
 
@@ -91,16 +84,40 @@ class _RemindersScreenState extends State<RemindersScreen> {
   }
 
   Future<void> _showReminderEditor({SadhanaReminder? existing}) async {
-    SadhanaTypeModel selectedType;
+    const customTypeId = -1;
 
+    SadhanaTypeModel? existingType;
     if (existing != null) {
-      selectedType = _sadhanaTypes.firstWhere(
-        (type) => type.id == existing.sadhanaTypeId,
-        orElse: () => _sadhanaTypes.first,
-      );
-    } else {
-      selectedType = _sadhanaTypes.first;
+      for (final type in _sadhanaTypes) {
+        if (type.id == existing.sadhanaTypeId) {
+          existingType = type;
+          break;
+        }
+      }
     }
+
+    int selectedActivityId;
+    if (existingType?.id != null) {
+      selectedActivityId = existingType!.id!;
+    } else if (existing != null) {
+      selectedActivityId = customTypeId;
+    } else if (_sadhanaTypes.isNotEmpty) {
+      selectedActivityId = _sadhanaTypes.first.id ?? customTypeId;
+    } else {
+      selectedActivityId = customTypeId;
+    }
+
+    SadhanaTypeModel? selectedType =
+        existingType ?? (_sadhanaTypes.isNotEmpty ? _sadhanaTypes.first : null);
+
+    final customTitleController = TextEditingController(
+      text: selectedActivityId == customTypeId ? (existing?.title ?? '') : '',
+    );
+    final customIconController = TextEditingController(
+      text: selectedActivityId == customTypeId
+          ? (existing?.icon ?? '🙏')
+          : '🙏',
+    );
 
     TimeOfDay selectedTime = existing == null
         ? const TimeOfDay(hour: 6, minute: 0)
@@ -147,42 +164,92 @@ class _RemindersScreenState extends State<RemindersScreen> {
                         const SizedBox(height: 20),
 
                         DropdownButtonFormField<int>(
-                          value: selectedType.id,
+                          value: selectedActivityId,
                           decoration: const InputDecoration(
-                            labelText: 'Sadhana',
+                            labelText: 'Prayer / Sadhana',
                             prefixIcon: Icon(Icons.self_improvement),
                             border: OutlineInputBorder(),
+                            helperText:
+                                'Choose Chanting, Reading, Hearing, Aarti, any Sadhana, or Custom.',
                           ),
-                          items: _sadhanaTypes
-                              .where((type) => type.id != null)
-                              .map(
-                                (type) => DropdownMenuItem<int>(
-                                  value: type.id!,
-                                  child: Row(
-                                    children: [
-                                      Text(
-                                        type.icon ?? '🙏',
-                                        style: const TextStyle(fontSize: 22),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Text(type.name),
-                                    ],
+                          items: [
+                            ..._sadhanaTypes
+                                .where((type) => type.id != null)
+                                .map(
+                                  (type) => DropdownMenuItem<int>(
+                                    value: type.id!,
+                                    child: Row(
+                                      children: [
+                                        Text(
+                                          type.icon ?? '🙏',
+                                          style: const TextStyle(fontSize: 22),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Text(type.name),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              )
-                              .toList(),
+                            const DropdownMenuItem<int>(
+                              value: customTypeId,
+                              child: Row(
+                                children: [
+                                  Text('✨', style: TextStyle(fontSize: 22)),
+                                  SizedBox(width: 10),
+                                  Text('Custom'),
+                                ],
+                              ),
+                            ),
+                          ],
                           onChanged: (id) {
                             if (id == null) return;
 
-                            final type = _sadhanaTypes.firstWhere(
-                              (item) => item.id == id,
-                            );
-
                             setSheetState(() {
-                              selectedType = type;
+                              selectedActivityId = id;
+                              for (final item in _sadhanaTypes) {
+                                if (item.id == id) {
+                                  selectedType = item;
+                                  break;
+                                }
+                              }
                             });
                           },
                         ),
+
+                        if (selectedActivityId == customTypeId) ...[
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: customTitleController,
+                            textCapitalization: TextCapitalization.sentences,
+                            decoration: const InputDecoration(
+                              labelText: 'Custom Prayer / Activity Name',
+                              hintText: 'e.g., Japa Meditation',
+                              prefixIcon: Icon(Icons.edit_outlined),
+                              border: OutlineInputBorder(),
+                            ),
+                            validator: (value) {
+                              if (selectedActivityId != customTypeId) {
+                                return null;
+                              }
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Enter a name for the custom reminder.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: customIconController,
+                            maxLength: 2,
+                            decoration: const InputDecoration(
+                              labelText: 'Icon / Emoji',
+                              hintText: '🙏',
+                              prefixIcon: Icon(Icons.emoji_emotions_outlined),
+                              border: OutlineInputBorder(),
+                              counterText: '',
+                            ),
+                          ),
+                        ],
 
                         const SizedBox(height: 16),
 
@@ -273,7 +340,9 @@ class _RemindersScreenState extends State<RemindersScreen> {
                           height: 52,
                           child: FilledButton.icon(
                             onPressed: () async {
-                              if (selectedType.id == null) return;
+                              if (!formKey.currentState!.validate()) {
+                                return;
+                              }
 
                               if (selectedWeekdays.isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -290,13 +359,28 @@ class _RemindersScreenState extends State<RemindersScreen> {
                               final customMsg = customMessageController.text
                                   .trim();
 
+                              String title;
+                              String icon;
+                              int typeId;
+
+                              if (selectedActivityId == customTypeId) {
+                                typeId = customTypeId;
+                                title = customTitleController.text.trim();
+                                icon = customIconController.text.trim();
+                                if (icon.isEmpty) icon = '🙏';
+                              } else {
+                                typeId = selectedType!.id!;
+                                title = selectedType!.name;
+                                icon = selectedType!.icon ?? '🙏';
+                              }
+
                               final reminder = SadhanaReminder(
                                 id:
                                     existing?.id ??
                                     _reminderService.createId(reminders),
-                                sadhanaTypeId: selectedType.id!,
-                                title: selectedType.name,
-                                icon: selectedType.icon ?? '🙏',
+                                sadhanaTypeId: typeId,
+                                title: title,
+                                icon: icon,
                                 hour: selectedTime.hour,
                                 minute: selectedTime.minute,
                                 weekdays: selectedWeekdays.toList()..sort(),

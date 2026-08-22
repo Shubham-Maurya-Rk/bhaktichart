@@ -252,6 +252,41 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
   }
 
   // ============================================================
+  // TEXT INPUT DIALOG HELPER
+  // ============================================================
+
+  Future<String?> _showTextInputDialog(
+    BuildContext context, {
+    required String title,
+    required String hint,
+  }) {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(title),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(hintText: hint),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, controller.text),
+              child: const Text('Add'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ============================================================
   // TASK DIALOG
   // ============================================================
 
@@ -259,14 +294,36 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
     final titleController = TextEditingController(
       text: existingTask?.title ?? '',
     );
-
     final descriptionController = TextEditingController(
       text: existingTask?.description ?? '',
     );
 
+    // Pre-defined categories + custom option support
+    List<String> categories = ['Morning', 'Day', 'Evening'];
     String selectedCategory = existingTask?.category ?? 'Morning';
+    if (!categories.contains(selectedCategory)) {
+      categories.add(selectedCategory);
+    }
 
+    // Pre-defined emojis + custom option support
+    List<String> emojis = [
+      '🙏',
+      '📿',
+      '📖',
+      '🪔',
+      '🎧',
+      '🤝',
+      '🧘',
+      '🌱',
+      '❤️',
+      '✨',
+      '🛕',
+      '☀️',
+    ];
     String selectedEmoji = existingTask?.emoji ?? '🙏';
+    if (!emojis.contains(selectedEmoji)) {
+      emojis.add(selectedEmoji);
+    }
 
     final formKey = GlobalKey<FormState>();
 
@@ -295,12 +352,9 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                         style: Theme.of(context).textTheme.headlineSmall
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
-
                       const SizedBox(height: 20),
 
-                      // ==================================================
                       // TITLE
-                      // ==================================================
                       TextFormField(
                         controller: titleController,
                         autofocus: existingTask == null,
@@ -313,20 +367,14 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Please enter a task';
-                          }
-
-                          return null;
-                        },
+                        validator: (value) =>
+                            (value == null || value.trim().isEmpty)
+                            ? 'Please enter a task'
+                            : null,
                       ),
-
                       const SizedBox(height: 14),
 
-                      // ==================================================
                       // DESCRIPTION
-                      // ==================================================
                       TextFormField(
                         controller: descriptionController,
                         textCapitalization: TextCapitalization.sentences,
@@ -340,148 +388,155 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 20),
 
-                      // ==================================================
                       // CATEGORY
-                      // ==================================================
                       Text(
                         'Category',
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-
                       const SizedBox(height: 10),
-
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          _buildCategoryChoice(
-                            context,
-                            label: 'Morning',
-                            emoji: '🌅',
-                            selected: selectedCategory == 'Morning',
-                            onTap: () {
-                              setSheetState(() {
-                                selectedCategory = 'Morning';
-                              });
-                            },
+                          ...categories.map(
+                            (cat) => _buildCategoryChoice(
+                              context,
+                              label: cat,
+                              emoji: cat == 'Morning'
+                                  ? '🌅'
+                                  : cat == 'Day'
+                                  ? '☀️'
+                                  : cat == 'Evening'
+                                  ? '🌙'
+                                  : '🏷️',
+                              selected: selectedCategory == cat,
+                              onTap: () =>
+                                  setSheetState(() => selectedCategory = cat),
+                            ),
                           ),
-                          _buildCategoryChoice(
-                            context,
-                            label: 'Day',
-                            emoji: '☀️',
-                            selected: selectedCategory == 'Day',
-                            onTap: () {
-                              setSheetState(() {
-                                selectedCategory = 'Day';
-                              });
-                            },
-                          ),
-                          _buildCategoryChoice(
-                            context,
-                            label: 'Evening',
-                            emoji: '🌙',
-                            selected: selectedCategory == 'Evening',
-                            onTap: () {
-                              setSheetState(() {
-                                selectedCategory = 'Evening';
-                              });
+                          ActionChip(
+                            avatar: const Icon(Icons.add, size: 18),
+                            label: const Text('Custom'),
+                            onPressed: () async {
+                              final customCat = await _showTextInputDialog(
+                                context,
+                                title: 'Add Custom Category',
+                                hint: 'Category name',
+                              );
+                              if (customCat != null &&
+                                  customCat.trim().isNotEmpty) {
+                                final trimmed = customCat.trim();
+                                setSheetState(() {
+                                  if (!categories.contains(trimmed)) {
+                                    categories.add(trimmed);
+                                  }
+                                  selectedCategory = trimmed;
+                                });
+                              }
                             },
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 20),
 
-                      // ==================================================
                       // ICON
-                      // ==================================================
                       Text(
                         'Icon',
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-
                       const SizedBox(height: 10),
-
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
-                        children:
-                            [
-                              '🙏',
-                              '📿',
-                              '📖',
-                              '🪔',
-                              '🎧',
-                              '🤝',
-                              '🧘',
-                              '🌱',
-                              '❤️',
-                              '✨',
-                              '🛕',
-                              '☀️',
-                            ].map((emoji) {
-                              final selected = selectedEmoji == emoji;
-
-                              return InkWell(
-                                borderRadius: BorderRadius.circular(12),
-                                onTap: () {
-                                  setSheetState(() {
-                                    selectedEmoji = emoji;
-                                  });
-                                },
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 150),
-                                  width: 48,
-                                  height: 48,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: selected
-                                        ? Theme.of(
+                        children: [
+                          ...emojis.map((emoji) {
+                            final selected = selectedEmoji == emoji;
+                            return InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () =>
+                                  setSheetState(() => selectedEmoji = emoji),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 150),
+                                width: 48,
+                                height: 48,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: selected
+                                      ? Theme.of(
+                                          context,
+                                        ).colorScheme.primaryContainer
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: selected
+                                      ? Border.all(
+                                          color: Theme.of(
                                             context,
-                                          ).colorScheme.primaryContainer
-                                        : Theme.of(
-                                            context,
-                                          ).colorScheme.surfaceContainerHighest,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: selected
-                                        ? Border.all(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                            width: 2,
-                                          )
-                                        : null,
-                                  ),
-                                  child: Text(
-                                    emoji,
-                                    style: const TextStyle(fontSize: 23),
-                                  ),
+                                          ).colorScheme.primary,
+                                          width: 2,
+                                        )
+                                      : null,
                                 ),
+                                child: Text(
+                                  emoji,
+                                  style: const TextStyle(fontSize: 23),
+                                ),
+                              ),
+                            );
+                          }),
+                          InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () async {
+                              final customEmoji = await _showTextInputDialog(
+                                context,
+                                title: 'Enter Custom Emoji',
+                                hint: 'Paste/Type Emoji (e.g. 🎯)',
                               );
-                            }).toList(),
+                              if (customEmoji != null &&
+                                  customEmoji.trim().isNotEmpty) {
+                                final trimmed = customEmoji.trim();
+                                setSheetState(() {
+                                  if (!emojis.contains(trimmed)) {
+                                    emojis.add(trimmed);
+                                  }
+                                  selectedEmoji = trimmed;
+                                });
+                              }
+                            },
+                            child: Container(
+                              width: 48,
+                              height: 48,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.add_reaction_outlined,
+                                size: 22,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-
                       const SizedBox(height: 26),
 
-                      // ==================================================
                       // SAVE
-                      // ==================================================
                       SizedBox(
                         width: double.infinity,
                         height: 52,
                         child: FilledButton.icon(
                           onPressed: () {
-                            if (!formKey.currentState!.validate()) {
-                              return;
-                            }
-
+                            if (!formKey.currentState!.validate()) return;
                             final task = _TodoTask(
                               id:
                                   existingTask?.id ??
@@ -493,7 +548,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                               emoji: selectedEmoji,
                               completed: existingTask?.completed ?? false,
                             );
-
                             Navigator.pop(sheetContext, task);
                           },
                           icon: Icon(
@@ -688,24 +742,9 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
 
     categoryTasks.insert(newIndex, movedTask);
 
-    // ==========================================================
-    // Rebuild the global task list.
-    //
-    // We preserve:
-    // - category positions
-    // - completed tasks
-    // - other categories
-    //
-    // Only the selected category's pending order changes.
-    // ==========================================================
-
     final reorderedIds = categoryTasks.map((task) => task.id).toSet();
 
     final newTasks = <_TodoTask>[];
-
-    // Keep the original global structure, but replace
-    // the selected category's pending tasks in their
-    // original slots.
 
     int replacementIndex = 0;
 
@@ -721,7 +760,6 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
       }
     }
 
-    // Prevent analyzer warning if implementation changes.
     reorderedIds.length;
 
     setState(() {
@@ -757,6 +795,12 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
+    // Dynamic category extraction to support custom categories
+    final activeCategories = _tasks
+        .where((task) => !task.completed)
+        .map((task) => task.category)
+        .toSet();
 
     return Scaffold(
       appBar: AppBar(
@@ -829,30 +873,25 @@ class _DailyTodoScreenState extends State<DailyTodoScreen> {
                   ),
 
                   // ------------------------------------------------
-                  // TASKS
+                  // TASKS (DYNAMIC CATEGORY LIST)
                   // ------------------------------------------------
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
-                        _buildCategorySection(
-                          context,
-                          category: 'Morning',
-                          emoji: '🌅',
+                        ...activeCategories.map(
+                          (cat) => _buildCategorySection(
+                            context,
+                            category: cat,
+                            emoji: cat == 'Morning'
+                                ? '🌅'
+                                : cat == 'Day'
+                                ? '☀️'
+                                : cat == 'Evening'
+                                ? '🌙'
+                                : '🏷️',
+                          ),
                         ),
-
-                        _buildCategorySection(
-                          context,
-                          category: 'Day',
-                          emoji: '☀️',
-                        ),
-
-                        _buildCategorySection(
-                          context,
-                          category: 'Evening',
-                          emoji: '🌙',
-                        ),
-
                         if (_completedCount > 0)
                           _buildCompletedSection(context),
                       ]),
