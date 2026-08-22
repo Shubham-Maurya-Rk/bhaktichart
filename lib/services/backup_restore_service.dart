@@ -3,8 +3,22 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:media_store_plus/media_store_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/database/database_helper.dart';
+
+class AutomaticBackupResult {
+  final String datedFileName;
+  final String latestFileName;
+  final DateTime createdAt;
+
+  const AutomaticBackupResult({
+    required this.datedFileName,
+    required this.latestFileName,
+    required this.createdAt,
+  });
+}
 
 class BackupRestoreService {
   BackupRestoreService._();
@@ -18,6 +32,15 @@ class BackupRestoreService {
   // ============================================================
 
   static const String backupPrefix = 'bhaktichart_backup';
+  static const String automaticBackupPrefix = 'bhaktichart_auto_backup';
+  static const String automaticLatestBackupName =
+      'bhaktichart_latest_backup.db';
+  static const String _lastAutomaticBackupKey =
+      'bhaktichart_last_automatic_backup';
+
+  static const String automaticBackupRelativePath = 'BhaktiChart/Backups/';
+
+  final MediaStore _mediaStore = MediaStore();
 
   // ============================================================
   // DATABASE PATH
@@ -149,6 +172,152 @@ class BackupRestoreService {
 
       rethrow;
     }
+  }
+
+  // ============================================================
+  // AUTOMATIC WEEKLY BACKUP
+  // ============================================================
+  Future<File> createAutomaticBackupFile() async {
+    File? backupFile;
+
+    try {
+      final db = await _databaseHelper.database;
+
+      final tempDirectory = await getTemporaryDirectory();
+
+      final timestamp = _formatTimestamp(DateTime.now());
+
+      final backupPath = path.join(
+        tempDirectory.path,
+        '${automaticBackupPrefix}_$timestamp.db',
+      );
+
+      backupFile = File(backupPath);
+
+      if (await backupFile.exists()) {
+        await backupFile.delete();
+      }
+
+      // IMPORTANT:
+      // Do NOT close the live application database here.
+      //
+      // VACUUM INTO creates a consistent SQLite copy while the
+      // application's database connection remains open.
+      final escapedPath = backupPath.replaceAll("'", "''");
+
+      await db.execute("VACUUM INTO '$escapedPath'");
+
+      if (!await backupFile.exists()) {
+        throw Exception('Automatic backup database was not created.');
+      }
+
+      final size = await backupFile.length();
+
+      if (size <= 0) {
+        throw Exception('Automatic backup database is empty.');
+      }
+
+      await _validateBackupDatabase(backupFile);
+
+      return backupFile;
+    } catch (e) {
+      if (backupFile != null) {
+        try {
+          if (await backupFile.exists()) {
+            await backupFile.delete();
+          }
+        } catch (_) {}
+      }
+
+      rethrow;
+    }
+  }
+
+  Future<AutomaticBackupResult> createAutomaticBackup() async {
+    if (!Platform.isAndroid) {
+      throw UnsupportedError(
+        'Automatic shared-storage backups are currently supported on Android only.',
+      );
+    }
+
+    File? latestTempFile;
+
+    try {
+      await MediaStore.ensureInitialized();
+
+      // media_store_plus uses Android MediaStore Downloads storage.
+      MediaStore.appFolder = 'BhaktiChart';
+
+      // Reuse the existing safe/validated database export.
+      final validatedBackup = await createAutomaticBackupFile();
+
+      final tempDirectory = await getTemporaryDirectory();
+      final timestamp = _formatTimestamp(DateTime.now());
+
+      final datedName = '${automaticBackupPrefix}_$timestamp.db';
+      final latestTempPath = path.join(
+        tempDirectory.path,
+        automaticLatestBackupName,
+      );
+
+      // saveFile consumes its temporary source file, so create a second
+      // temporary copy for the latest backup.
+      latestTempFile = await validatedBackup.copy(latestTempPath);
+
+      final datedResult = await _mediaStore.saveFile(
+        tempFilePath: validatedBackup.path,
+        dirType: DirType.download,
+        dirName: DirName.download,
+        relativePath: automaticBackupRelativePath,
+      );
+
+      if (datedResult == null) {
+        throw Exception(
+          'Could not save the weekly backup to shared Downloads storage.',
+        );
+      }
+
+      final latestResult = await _mediaStore.saveFile(
+        tempFilePath: latestTempFile.path,
+        dirType: DirType.download,
+        dirName: DirName.download,
+        relativePath: automaticBackupRelativePath,
+      );
+
+      if (latestResult == null) {
+        throw Exception('Could not update the latest backup.');
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now();
+
+      await prefs.setString(_lastAutomaticBackupKey, now.toIso8601String());
+
+      return AutomaticBackupResult(
+        datedFileName: datedName,
+        latestFileName: automaticLatestBackupName,
+        createdAt: now,
+      );
+    } finally {
+      if (latestTempFile != null) {
+        try {
+          if (await latestTempFile.exists()) {
+            await latestTempFile.delete();
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<DateTime?> getLastAutomaticBackupTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_lastAutomaticBackupKey);
+
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+
+    return DateTime.tryParse(value);
   }
 
   // ============================================================

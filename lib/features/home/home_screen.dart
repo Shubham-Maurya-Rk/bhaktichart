@@ -15,6 +15,7 @@ import 'package:bhaktichart/models/goal_model.dart';
 import 'package:bhaktichart/models/sadhana_type_model.dart';
 import 'package:bhaktichart/repositories/sadhana_repository.dart';
 import 'package:flutter/material.dart';
+import 'package:bhaktichart/services/backup_scheduler.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -108,6 +109,9 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _initializeReminderNotifications();
     _loadHomeData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      BackupScheduler.instance.enableWeeklyBackup();
+    });
   }
 
   // ============================================================
@@ -4059,9 +4063,9 @@ class _HomeScreenState extends State<HomeScreen> {
             const Divider(),
 
             ListTile(
-              leading: const Icon(Icons.self_improvement_rounded),
+              leading: const Icon(Icons.touch_app_rounded),
               title: const Text('Mantra Counter'),
-              subtitle: const Text('Hare Krishna • 108 mantras'),
+              subtitle: const Text('Chant & Be Happy 😊'),
               onTap: () async {
                 Navigator.pop(context);
 

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../services/backup_restore_service.dart';
+import '../../services/backup_scheduler.dart';
 
 class BackupRestoreScreen extends StatefulWidget {
   const BackupRestoreScreen({super.key});
@@ -18,6 +19,122 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
 
   bool _isExporting = false;
   bool _isImporting = false;
+
+  bool _automaticBackupEnabled = true;
+  bool _isAutomaticBackupLoading = true;
+  bool _isAutomaticBackupRunning = false;
+  DateTime? _lastAutomaticBackup;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAutomaticBackupStatus();
+  }
+
+  Future<void> _loadAutomaticBackupStatus() async {
+    try {
+      final lastBackup =
+          await BackupRestoreService.instance.getLastAutomaticBackupTime();
+
+      if (!mounted) return;
+
+      setState(() {
+        _lastAutomaticBackup = lastBackup;
+        _isAutomaticBackupLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Automatic backup status error: $e');
+
+      if (mounted) {
+        setState(() {
+          _isAutomaticBackupLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _setAutomaticBackupEnabled(bool enabled) async {
+    if (_isAutomaticBackupRunning) return;
+
+    setState(() {
+      _isAutomaticBackupRunning = true;
+    });
+
+    try {
+      if (enabled) {
+        await BackupScheduler.instance.enableWeeklyBackup();
+      } else {
+        await BackupScheduler.instance.disableWeeklyBackup();
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _automaticBackupEnabled = enabled;
+        _isAutomaticBackupRunning = false;
+      });
+
+      _showSuccess(
+        enabled
+            ? 'Automatic weekly backup enabled.'
+            : 'Automatic weekly backup disabled.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isAutomaticBackupRunning = false;
+      });
+
+      _showError('Unable to update automatic backup.\n\n$e');
+    }
+  }
+
+  Future<void> _runAutomaticBackupNow() async {
+    if (_isBusy || _isAutomaticBackupRunning) return;
+
+    setState(() {
+      _isAutomaticBackupRunning = true;
+    });
+
+    try {
+      final result =
+          await BackupRestoreService.instance.createAutomaticBackup();
+
+      if (!mounted) return;
+
+      setState(() {
+        _lastAutomaticBackup = result.createdAt;
+        _isAutomaticBackupRunning = false;
+      });
+
+      _showSuccess(
+        'Backup saved to Downloads/BhaktiChart/Backups.',
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Automatic backup error: $e');
+      debugPrint('$stackTrace');
+
+      if (!mounted) return;
+
+      setState(() {
+        _isAutomaticBackupRunning = false;
+      });
+
+      _showError('Unable to create automatic backup.\n\n$e');
+    }
+  }
+
+  String _formatBackupDate(DateTime? date) {
+    if (date == null) return 'Never';
+
+    final local = date.toLocal();
+
+    String two(int value) => value.toString().padLeft(2, '0');
+
+    return '${two(local.day)}/${two(local.month)}/${local.year} '
+        '${two(local.hour)}:${two(local.minute)}';
+  }
 
   // ============================================================
   // BUSY
@@ -480,6 +597,149 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
   }
 
   // ============================================================
+  // AUTOMATIC BACKUP CARD
+  // ============================================================
+
+  Widget _buildAutomaticBackupCard(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.tertiaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.auto_awesome_outlined,
+                    size: 30,
+                    color: theme.colorScheme.onTertiaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Automatic Backup',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Automatically protect your data every week.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_isAutomaticBackupLoading)
+                  const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  Switch(
+                    value: _automaticBackupEnabled,
+                    onChanged: _isAutomaticBackupRunning
+                        ? null
+                        : _setAutomaticBackupEnabled,
+                  ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.folder_outlined,
+                        size: 19,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Downloads / BhaktiChart / Backups',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Backups are stored in shared Android storage, '
+                    'outside the app database.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Last automatic backup: '
+                    '${_formatBackupDate(_lastAutomaticBackup)}',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: (_isBusy || _isAutomaticBackupRunning)
+                    ? null
+                    : _runAutomaticBackupNow,
+                icon: _isAutomaticBackupRunning
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.backup_outlined),
+                label: Text(
+                  _isAutomaticBackupRunning
+                      ? 'Creating Automatic Backup...'
+                      : 'BACK UP NOW',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
   // BACKUP CARD
   // ============================================================
 
@@ -726,6 +986,10 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
               ),
 
               const SizedBox(height: 20),
+
+              _buildAutomaticBackupCard(context),
+
+              const SizedBox(height: 12),
 
               _buildBackupCard(context),
 
