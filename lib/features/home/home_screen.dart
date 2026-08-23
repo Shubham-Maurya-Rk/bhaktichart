@@ -3478,232 +3478,812 @@ class _HomeScreenState extends State<HomeScreen> {
     final titleController = TextEditingController();
     final urlController = TextEditingController();
 
+    bool isSaving = false;
+    bool isDeleting = false;
+    bool isReordering = false;
+
     if (!context.mounted) {
       return;
     }
 
     await showDialog(
       context: context,
-
+      barrierDismissible: true,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Manage Saved Links'),
+            final theme = Theme.of(context);
+            final colorScheme = theme.colorScheme;
 
-              content: SizedBox(
-                width: double.maxFinite,
+            // ==========================================================
+            // REFRESH LINKS
+            // ==========================================================
 
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+            Future<void> refreshLinks() async {
+              links = await repository.getAllLinks();
 
-                    children: [
-                      // ==================================================
-                      // NO LINKS
-                      // ==================================================
+              if (context.mounted) {
+                setDialogState(() {});
+              }
 
-                      if (links.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          child: Text('No links added yet.'),
-                        )
-                      // ==================================================
-                      // LINKS
-                      // ==================================================
-                      else
-                        ReorderableListView.builder(
-                          shrinkWrap: true,
+              if (mounted) {
+                setState(() {});
+              }
+            }
 
-                          physics: const NeverScrollableScrollPhysics(),
+            // ==========================================================
+            // ADD LINK
+            // ==========================================================
 
-                          itemCount: links.length,
+            Future<void> addLink() async {
+              final title = titleController.text.trim();
 
-                          onReorder: (int oldIndex, int newIndex) async {
-                            if (oldIndex < newIndex) {
-                              newIndex -= 1;
-                            }
+              var url = urlController.text.trim();
 
-                            // Update database order.
-                            await repository.reorderLinks(oldIndex, newIndex);
+              if (url.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a URL.')),
+                );
 
-                            // Reload from database.
-                            links = await repository.getAllLinks();
+                return;
+              }
 
-                            setDialogState(() {});
+              // --------------------------------------------------------
+              // Automatically add https://
+              // --------------------------------------------------------
 
-                            if (mounted) {
-                              setState(() {});
-                            }
-                          },
+              if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://$url';
+              }
 
-                          itemBuilder: (context, index) {
-                            final link = links[index];
+              setDialogState(() {
+                isSaving = true;
+              });
 
-                            return ListTile(
-                              key: ValueKey(link.id),
+              try {
+                await repository.addLink(title: title, url: url);
 
-                              contentPadding: EdgeInsets.zero,
+                titleController.clear();
+                urlController.clear();
 
-                              leading: Row(
-                                mainAxisSize: MainAxisSize.min,
+                await refreshLinks();
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Could not save link: $e')),
+                  );
+                }
+              } finally {
+                if (context.mounted) {
+                  setDialogState(() {
+                    isSaving = false;
+                  });
+                }
+              }
+            }
 
-                                children: [
-                                  Icon(
-                                    Icons.drag_handle,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.outline,
-                                  ),
+            // ==========================================================
+            // DELETE LINK
+            // ==========================================================
 
-                                  const SizedBox(width: 8),
+            Future<void> deleteLink(SavedLink link) async {
+              final displayName = link.title.trim().isEmpty
+                  ? link.url
+                  : link.title;
 
-                                  _getLinkIcon(link.url),
-                                ],
-                              ),
-
-                              title: Text(
-                                link.title.isEmpty ? link.url : link.title,
-
-                                maxLines: 1,
-
-                                overflow: TextOverflow.ellipsis,
-                              ),
-
-                              subtitle: Text(
-                                link.url,
-
-                                maxLines: 1,
-
-                                overflow: TextOverflow.ellipsis,
-                              ),
-
-                              trailing: IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: Colors.red,
-                                ),
-
-                                onPressed: () async {
-                                  await repository.deleteLink(link.id);
-
-                                  links = await repository.getAllLinks();
-
-                                  setDialogState(() {});
-
-                                  if (mounted) {
-                                    setState(() {});
-                                  }
-                                },
-                              ),
-                            );
-                          },
-                        ),
-
-                      const Divider(),
-
-                      // ==================================================
-                      // ADD NEW LINK
-                      // ==================================================
-                      const Align(
-                        alignment: Alignment.centerLeft,
-
-                        child: Text(
-                          'Add New Link',
-
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
+              final shouldDelete = await showDialog<bool>(
+                context: context,
+                builder: (confirmContext) {
+                  return AlertDialog(
+                    title: const Text('Delete link?'),
+                    content: Text(
+                      'Remove "$displayName" from your saved links?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(confirmContext, false);
+                        },
+                        child: const Text('Cancel'),
                       ),
-
-                      const SizedBox(height: 8),
-
-                      TextField(
-                        controller: titleController,
-
-                        decoration: const InputDecoration(
-                          labelText: 'Name (e.g. SB Classes / Resource Doc)',
-
-                          border: OutlineInputBorder(),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: colorScheme.error,
+                          foregroundColor: colorScheme.onError,
                         ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      TextField(
-                        controller: urlController,
-
-                        decoration: const InputDecoration(
-                          labelText: 'URL (e.g. https://...)',
-
-                          border: OutlineInputBorder(),
-                        ),
+                        onPressed: () {
+                          Navigator.pop(confirmContext, true);
+                        },
+                        child: const Text('Delete'),
                       ),
                     ],
-                  ),
+                  );
+                },
+              );
+
+              if (shouldDelete != true) {
+                return;
+              }
+
+              setDialogState(() {
+                isDeleting = true;
+              });
+
+              try {
+                await repository.deleteLink(link.id);
+
+                await refreshLinks();
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Could not delete link: $e')),
+                  );
+                }
+              } finally {
+                if (context.mounted) {
+                  setDialogState(() {
+                    isDeleting = false;
+                  });
+                }
+              }
+            }
+
+            // ==========================================================
+            // REORDER LINKS
+            // ==========================================================
+
+            Future<void> reorderLinks(int oldIndex, int newIndex) async {
+              if (isReordering) {
+                return;
+              }
+
+              if (oldIndex < newIndex) {
+                newIndex -= 1;
+              }
+
+              if (oldIndex == newIndex) {
+                return;
+              }
+
+              setDialogState(() {
+                isReordering = true;
+              });
+
+              try {
+                await repository.reorderLinks(oldIndex, newIndex);
+
+                await refreshLinks();
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Could not reorder links: $e')),
+                  );
+                }
+              } finally {
+                if (context.mounted) {
+                  setDialogState(() {
+                    isReordering = false;
+                  });
+                }
+              }
+            }
+
+            // ==========================================================
+            // DIALOG
+            // ==========================================================
+
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 24,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 720,
+                  maxHeight: 780,
+                ),
+                child: Column(
+                  children: [
+                    // ====================================================
+                    // HEADER
+                    // ====================================================
+
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 22, 16, 18),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 46,
+                            height: 46,
+                            decoration: BoxDecoration(
+                              color: colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              Icons.link_rounded,
+                              color: colorScheme.onPrimaryContainer,
+                              size: 24,
+                            ),
+                          ),
+
+                          const SizedBox(width: 14),
+
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Saved Links',
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  links.isEmpty
+                                      ? 'Save your favorite resources'
+                                      : '${links.length} '
+                                            '${links.length == 1 ? 'link' : 'links'} saved',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: () {
+                              Navigator.pop(dialogContext);
+                            },
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    Divider(height: 1, color: colorScheme.outlineVariant),
+
+                    // ====================================================
+                    // SCROLLABLE CONTENT
+                    // ====================================================
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          SingleChildScrollView(
+                            padding: const EdgeInsets.fromLTRB(24, 22, 24, 28),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // ========================================
+                                // ADD NEW LINK SECTION
+                                // ========================================
+
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: colorScheme.primary,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Icon(
+                                        Icons.add_link_rounded,
+                                        color: colorScheme.onPrimary,
+                                        size: 21,
+                                      ),
+                                    ),
+
+                                    const SizedBox(width: 11),
+
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Add New Link',
+                                            style: theme.textTheme.titleMedium
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'Save a website or resource',
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: colorScheme
+                                                      .onSurfaceVariant,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 16),
+
+                                // ========================================
+                                // FORM CARD
+                                // ========================================
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(18),
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.surfaceContainerHighest
+                                        .withOpacity(0.45),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: colorScheme.outlineVariant,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      // ----------------------------------
+                                      // NAME
+                                      // ----------------------------------
+
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: TextField(
+                                          controller: titleController,
+                                          textCapitalization:
+                                              TextCapitalization.sentences,
+                                          decoration: InputDecoration(
+                                            labelText: 'Name',
+                                            hintText: 'e.g. SB Classes',
+                                            prefixIcon: const Icon(
+                                              Icons.label_outline_rounded,
+                                            ),
+                                            filled: true,
+                                            fillColor: colorScheme.surface,
+                                            border: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                            enabledBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              borderSide: BorderSide(
+                                                color:
+                                                    colorScheme.outlineVariant,
+                                              ),
+                                            ),
+                                            focusedBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              borderSide: BorderSide(
+                                                color: colorScheme.primary,
+                                                width: 2,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+
+                                      const SizedBox(height: 13),
+
+                                      // ----------------------------------
+                                      // URL
+                                      // ----------------------------------
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: TextField(
+                                          controller: urlController,
+                                          keyboardType: TextInputType.url,
+                                          textInputAction: TextInputAction.done,
+                                          onSubmitted: (_) {
+                                            if (!isSaving) {
+                                              addLink();
+                                            }
+                                          },
+                                          decoration: InputDecoration(
+                                            labelText: 'URL',
+                                            hintText: 'https://example.com',
+                                            prefixIcon: const Icon(
+                                              Icons.link_rounded,
+                                            ),
+                                            filled: true,
+                                            fillColor: colorScheme.surface,
+                                            border: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                            enabledBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              borderSide: BorderSide(
+                                                color:
+                                                    colorScheme.outlineVariant,
+                                              ),
+                                            ),
+                                            focusedBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              borderSide: BorderSide(
+                                                color: colorScheme.primary,
+                                                width: 2,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+
+                                      const SizedBox(height: 14),
+
+                                      // ----------------------------------
+                                      // ADD BUTTON
+                                      // ----------------------------------
+                                      SizedBox(
+                                        width: double.infinity,
+                                        height: 52,
+                                        child: FilledButton.icon(
+                                          onPressed: isSaving ? null : addLink,
+                                          icon: isSaving
+                                              ? const SizedBox(
+                                                  width: 19,
+                                                  height: 19,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                      ),
+                                                )
+                                              : const Icon(Icons.add_rounded),
+                                          label: Text(
+                                            isSaving ? 'Adding...' : 'Add Link',
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                const SizedBox(height: 30),
+
+                                // ========================================
+                                // SAVED LINKS HEADER
+                                // ========================================
+                                Row(
+                                  children: [
+                                    Text(
+                                      'Saved Links',
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+
+                                    const SizedBox(width: 8),
+
+                                    if (links.isNotEmpty)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: colorScheme
+                                              .surfaceContainerHighest,
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          '${links.length}',
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                        ),
+                                      ),
+
+                                    const Spacer(),
+
+                                    if (links.length > 1)
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.drag_indicator_rounded,
+                                            size: 17,
+                                            color: colorScheme.onSurfaceVariant,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Drag to reorder',
+                                            style: theme.textTheme.labelSmall
+                                                ?.copyWith(
+                                                  color: colorScheme
+                                                      .onSurfaceVariant,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 12),
+
+                                // ========================================
+                                // EMPTY STATE
+                                // ========================================
+                                if (links.isEmpty)
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 32,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.surfaceContainerHighest
+                                          .withOpacity(0.35),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(
+                                        color: colorScheme.outlineVariant,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Container(
+                                          width: 58,
+                                          height: 58,
+                                          decoration: BoxDecoration(
+                                            color: colorScheme.primaryContainer,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          alignment: Alignment.center,
+                                          child: Icon(
+                                            Icons.link_off_rounded,
+                                            size: 28,
+                                            color:
+                                                colorScheme.onPrimaryContainer,
+                                          ),
+                                        ),
+
+                                        const SizedBox(height: 12),
+
+                                        Text(
+                                          'No saved links yet',
+                                          style: theme.textTheme.titleSmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                        ),
+
+                                        const SizedBox(height: 5),
+
+                                        Text(
+                                          'Add a link above to get started.',
+                                          textAlign: TextAlign.center,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  // ======================================
+                                  // LINK LIST
+                                  // ======================================
+                                  Container(
+                                    width: double.infinity,
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.surfaceContainerLowest,
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(
+                                        color: colorScheme.outlineVariant,
+                                      ),
+                                    ),
+                                    child: ReorderableListView.builder(
+                                      shrinkWrap: true,
+                                      physics:
+                                          const NeverScrollableScrollPhysics(),
+                                      buildDefaultDragHandles: false,
+                                      itemCount: links.length,
+                                      onReorder: reorderLinks,
+                                      itemBuilder: (context, index) {
+                                        final link = links[index];
+
+                                        final displayTitle =
+                                            link.title.trim().isEmpty
+                                            ? link.url
+                                            : link.title;
+
+                                        return Container(
+                                          key: ValueKey(link.id),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 9,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            border: index == links.length - 1
+                                                ? null
+                                                : Border(
+                                                    bottom: BorderSide(
+                                                      color: colorScheme
+                                                          .outlineVariant,
+                                                    ),
+                                                  ),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              // --------------------
+                                              // DRAG HANDLE
+                                              // --------------------
+
+                                              ReorderableDragStartListener(
+                                                index: index,
+                                                child: Padding(
+                                                  padding: const EdgeInsets.all(
+                                                    7,
+                                                  ),
+                                                  child: Icon(
+                                                    Icons
+                                                        .drag_indicator_rounded,
+                                                    color: colorScheme
+                                                        .onSurfaceVariant,
+                                                  ),
+                                                ),
+                                              ),
+
+                                              const SizedBox(width: 4),
+
+                                              // --------------------
+                                              // LINK ICON
+                                              // --------------------
+                                              Container(
+                                                width: 42,
+                                                height: 42,
+                                                decoration: BoxDecoration(
+                                                  color: colorScheme
+                                                      .surfaceContainerHighest,
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                alignment: Alignment.center,
+                                                child: _getLinkIcon(link.url),
+                                              ),
+
+                                              const SizedBox(width: 12),
+
+                                              // --------------------
+                                              // TEXT
+                                              // --------------------
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      displayTitle,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: theme
+                                                          .textTheme
+                                                          .bodyMedium
+                                                          ?.copyWith(
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                          ),
+                                                    ),
+
+                                                    const SizedBox(height: 3),
+
+                                                    Text(
+                                                      link.url,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: theme
+                                                          .textTheme
+                                                          .bodySmall
+                                                          ?.copyWith(
+                                                            color: colorScheme
+                                                                .onSurfaceVariant,
+                                                          ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+
+                                              const SizedBox(width: 4),
+
+                                              // --------------------
+                                              // DELETE
+                                              // --------------------
+                                              IconButton(
+                                                tooltip: 'Delete',
+                                                onPressed: isDeleting
+                                                    ? null
+                                                    : () => deleteLink(link),
+                                                icon: Icon(
+                                                  Icons.delete_outline_rounded,
+                                                  color: colorScheme.error,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+
+                          // ==============================================
+                          // REORDER LOADING
+                          // ==============================================
+                          if (isReordering)
+                            Positioned.fill(
+                              child: Container(
+                                color: colorScheme.surface.withOpacity(0.45),
+                                alignment: Alignment.center,
+                                child: const CircularProgressIndicator(),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+
+                    // ====================================================
+                    // FOOTER
+                    // ====================================================
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(24, 11, 24, 16),
+                      decoration: BoxDecoration(
+                        color: colorScheme.surface,
+                        border: Border(
+                          top: BorderSide(color: colorScheme.outlineVariant),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline_rounded,
+                            size: 17,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+
+                          const SizedBox(width: 7),
+
+                          Expanded(
+                            child: Text(
+                              'Links are saved locally on your device.',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(dialogContext);
+                            },
+                            child: const Text('Done'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-
-              actions: [
-                // ======================================================
-                // CLOSE
-                // ======================================================
-
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(dialogContext);
-                  },
-
-                  child: const Text('CLOSE'),
-                ),
-
-                // ======================================================
-                // ADD
-                // ======================================================
-                FilledButton(
-                  onPressed: () async {
-                    final title = titleController.text.trim();
-
-                    var url = urlController.text.trim();
-
-                    if (url.isEmpty) {
-                      return;
-                    }
-
-                    // -----------------------------------------------
-                    // Add https:// if needed
-                    // -----------------------------------------------
-
-                    if (!url.startsWith('http://') &&
-                        !url.startsWith('https://')) {
-                      url = 'https://$url';
-                    }
-
-                    // -----------------------------------------------
-                    // Save directly to SQLite
-                    // -----------------------------------------------
-
-                    await repository.addLink(title: title, url: url);
-
-                    // -----------------------------------------------
-                    // Reload links
-                    // -----------------------------------------------
-
-                    links = await repository.getAllLinks();
-
-                    titleController.clear();
-
-                    urlController.clear();
-
-                    setDialogState(() {});
-
-                    if (mounted) {
-                      setState(() {});
-                    }
-                  },
-
-                  child: const Text('ADD'),
-                ),
-              ],
             );
           },
         );

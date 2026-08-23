@@ -10,12 +10,10 @@ import '../core/database/database_helper.dart';
 
 class AutomaticBackupResult {
   final String datedFileName;
-  final String latestFileName;
   final DateTime createdAt;
 
   const AutomaticBackupResult({
     required this.datedFileName,
-    required this.latestFileName,
     required this.createdAt,
   });
 }
@@ -32,13 +30,16 @@ class BackupRestoreService {
   // ============================================================
 
   static const String backupPrefix = 'bhaktichart_backup';
+
   static const String automaticBackupPrefix = 'bhaktichart_auto_backup';
-  static const String automaticLatestBackupName =
-      'bhaktichart_latest_backup.db';
+
   static const String _lastAutomaticBackupKey =
       'bhaktichart_last_automatic_backup';
 
   static const String automaticBackupRelativePath = 'BhaktiChart/Backups/';
+
+  /// Maximum number of automatic weekly backups.
+  static const int maxAutomaticBackups = 12;
 
   final MediaStore _mediaStore = MediaStore();
 
@@ -51,46 +52,36 @@ class BackupRestoreService {
   }
 
   // ============================================================
-  // EXPORT DATABASE
+  // MANUAL DATABASE BACKUP
   // ============================================================
 
   Future<File> createBackupFile() async {
-    Database? db;
-
     try {
-      // --------------------------------------------------------
-      // Open database if it is not already open.
-      //
-      // This also makes sure the database exists.
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
+      // OPEN DATABASE
+      // ----------------------------------------------------------
 
-      db = await _databaseHelper.database;
+      final db = await _databaseHelper.database;
 
-      // --------------------------------------------------------
-      // Checkpoint WAL
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
+      // CHECKPOINT WAL
+      // ----------------------------------------------------------
 
       try {
         await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
-      } catch (e) {
-        // WAL checkpoint is not available on every configuration.
-        // Closing the DB below is still important.
+      } catch (_) {
+        // Ignore if WAL checkpoint is unavailable.
       }
 
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
       // CLOSE DATABASE
-      //
-      // This is VERY important.
-      //
-      // We don't want to copy the SQLite database while
-      // sqflite is actively writing to it.
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
 
       await _databaseHelper.closeDatabase();
 
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
       // DATABASE FILE
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
 
       final databasePath = await _databaseHelper.databasePath;
 
@@ -98,7 +89,7 @@ class BackupRestoreService {
 
       if (!await databaseFile.exists()) {
         throw Exception(
-          'Bhaktichart database file was not found.\n'
+          'BhaktiChart database file was not found.\n'
           'Path: $databasePath',
         );
       }
@@ -106,12 +97,12 @@ class BackupRestoreService {
       final databaseSize = await databaseFile.length();
 
       if (databaseSize <= 0) {
-        throw Exception('Bhaktichart database is empty.');
+        throw Exception('BhaktiChart database is empty.');
       }
 
-      // --------------------------------------------------------
-      // CACHE DIRECTORY
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
+      // TEMP DIRECTORY
+      // ----------------------------------------------------------
 
       final tempDirectory = await getTemporaryDirectory();
 
@@ -122,50 +113,36 @@ class BackupRestoreService {
         '${backupPrefix}_$timestamp.db',
       );
 
-      // --------------------------------------------------------
-      // REMOVE OLD FILE IF EXISTS
-      // --------------------------------------------------------
-
       await _deleteIfExists(File(backupPath));
 
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
       // COPY DATABASE
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
 
       final backupFile = await databaseFile.copy(backupPath);
 
-      // --------------------------------------------------------
-      // DELETE WAL / SHM FROM CURRENT DATABASE LOCATION
-      //
-      // Since the DB has been closed, these should normally
-      // already be handled by SQLite.
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
+      // REMOVE WAL / SHM
+      // ----------------------------------------------------------
 
       await _deleteIfExists(File('$databasePath-wal'));
 
       await _deleteIfExists(File('$databasePath-shm'));
 
-      // --------------------------------------------------------
-      // VALIDATE CREATED BACKUP
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
+      // VALIDATE BACKUP
+      // ----------------------------------------------------------
 
       await _validateBackupDatabase(backupFile);
 
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
       // REOPEN DATABASE
-      //
-      // Important because the app is still running.
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
 
       await _databaseHelper.reopenDatabase();
 
       return backupFile;
     } catch (e) {
-      // --------------------------------------------------------
-      // IMPORTANT:
-      // Always try to reopen DB if export failed.
-      // --------------------------------------------------------
-
       try {
         await _databaseHelper.reopenDatabase();
       } catch (_) {}
@@ -175,13 +152,22 @@ class BackupRestoreService {
   }
 
   // ============================================================
-  // AUTOMATIC WEEKLY BACKUP
+  // CREATE AUTOMATIC BACKUP FILE
   // ============================================================
+
   Future<File> createAutomaticBackupFile() async {
     File? backupFile;
 
     try {
+      // ----------------------------------------------------------
+      // OPEN DATABASE
+      // ----------------------------------------------------------
+
       final db = await _databaseHelper.database;
+
+      // ----------------------------------------------------------
+      // TEMP DIRECTORY
+      // ----------------------------------------------------------
 
       final tempDirectory = await getTemporaryDirectory();
 
@@ -194,18 +180,22 @@ class BackupRestoreService {
 
       backupFile = File(backupPath);
 
-      if (await backupFile.exists()) {
-        await backupFile.delete();
-      }
+      await _deleteIfExists(backupFile);
 
-      // IMPORTANT:
-      // Do NOT close the live application database here.
+      // ----------------------------------------------------------
+      // VACUUM INTO
       //
-      // VACUUM INTO creates a consistent SQLite copy while the
-      // application's database connection remains open.
+      // Creates a consistent SQLite copy while the live DB
+      // remains open.
+      // ----------------------------------------------------------
+
       final escapedPath = backupPath.replaceAll("'", "''");
 
       await db.execute("VACUUM INTO '$escapedPath'");
+
+      // ----------------------------------------------------------
+      // VALIDATE FILE EXISTS
+      // ----------------------------------------------------------
 
       if (!await backupFile.exists()) {
         throw Exception('Automatic backup database was not created.');
@@ -217,100 +207,266 @@ class BackupRestoreService {
         throw Exception('Automatic backup database is empty.');
       }
 
+      // ----------------------------------------------------------
+      // VALIDATE SQLITE DATABASE
+      // ----------------------------------------------------------
+
       await _validateBackupDatabase(backupFile);
 
       return backupFile;
     } catch (e) {
       if (backupFile != null) {
-        try {
-          if (await backupFile.exists()) {
-            await backupFile.delete();
-          }
-        } catch (_) {}
+        await _deleteIfExists(backupFile);
       }
 
       rethrow;
     }
   }
 
+  // ============================================================
+  // CREATE AUTOMATIC BACKUP
+  //
+  // IMPORTANT:
+  //
+  // We create ONLY ONE shared-storage file per backup:
+  //
+  // bhaktichart_auto_backup_YYYYMMDD_HHMMSS.db
+  //
+  // There is NO "latest_backup.db".
+  //
+  // The newest dated file is the latest backup.
+  //
+  // Maximum:
+  //
+  // 12 automatic backups
+  // ============================================================
+
   Future<AutomaticBackupResult> createAutomaticBackup() async {
     if (!Platform.isAndroid) {
       throw UnsupportedError(
-        'Automatic shared-storage backups are currently supported on Android only.',
+        'Automatic shared-storage backups are currently '
+        'supported on Android only.',
       );
     }
 
-    File? latestTempFile;
+    try {
+      // ----------------------------------------------------------
+      // INITIALIZE MEDIA STORE
+      // ----------------------------------------------------------
+
+      await MediaStore.ensureInitialized();
+
+      MediaStore.appFolder = 'BhaktiChart';
+
+      // ----------------------------------------------------------
+      // CREATE VALIDATED BACKUP
+      // ----------------------------------------------------------
+
+      final backupFile = await createAutomaticBackupFile();
+
+      try {
+        final timestamp = _formatTimestamp(DateTime.now());
+
+        final datedName = '${automaticBackupPrefix}_$timestamp.db';
+
+        // --------------------------------------------------------
+        // SAVE ONE FILE ONLY
+        // --------------------------------------------------------
+
+        final result = await _mediaStore.saveFile(
+          tempFilePath: backupFile.path,
+          dirType: DirType.download,
+          dirName: DirName.download,
+          relativePath: automaticBackupRelativePath,
+        );
+
+        if (result == null) {
+          throw Exception('Could not save automatic backup.');
+        }
+
+        // --------------------------------------------------------
+        // IMPORTANT
+        //
+        // If MediaStore creates:
+        //
+        // xxx (1).db
+        //
+        // then something with the same name already exists.
+        //
+        // We do NOT treat this as a successful normal backup.
+        // --------------------------------------------------------
+
+        if (result.isDuplicated) {
+          throw Exception('Automatic backup already exists: ${result.name}');
+        }
+
+        if (!result.isSuccessful) {
+          throw Exception('Could not save automatic backup: ${result.name}');
+        }
+
+        // --------------------------------------------------------
+        // CLEAN OLD BACKUPS
+        // --------------------------------------------------------
+
+        await _cleanupOldAutomaticBackups();
+
+        // --------------------------------------------------------
+        // SAVE LAST BACKUP TIME
+        // --------------------------------------------------------
+
+        final prefs = await SharedPreferences.getInstance();
+
+        final now = DateTime.now();
+
+        await prefs.setString(_lastAutomaticBackupKey, now.toIso8601String());
+
+        return AutomaticBackupResult(
+          datedFileName: result.name.isNotEmpty ? result.name : datedName,
+          createdAt: now,
+        );
+      } finally {
+        // --------------------------------------------------------
+        // TEMP FILE
+        //
+        // media_store_plus normally consumes/deletes the source
+        // file after saveFile().
+        // --------------------------------------------------------
+
+        await _deleteIfExists(backupFile);
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // ============================================================
+  // CLEAN OLD AUTOMATIC BACKUPS
+  //
+  // Keeps newest 12 dated backups.
+  //
+  // Example:
+  //
+  // 01
+  // 02
+  // ...
+  // 12
+  //
+  // When backup #13 is created:
+  //
+  // #1 is deleted.
+  // ============================================================
+
+  Future<void> _cleanupOldAutomaticBackups() async {
+    if (!Platform.isAndroid) {
+      return;
+    }
 
     try {
       await MediaStore.ensureInitialized();
 
-      // media_store_plus uses Android MediaStore Downloads storage.
       MediaStore.appFolder = 'BhaktiChart';
 
-      // Reuse the existing safe/validated database export.
-      final validatedBackup = await createAutomaticBackupFile();
+      // ----------------------------------------------------------
+      // Get folder path
+      // ----------------------------------------------------------
 
-      final tempDirectory = await getTemporaryDirectory();
-      final timestamp = _formatTimestamp(DateTime.now());
-
-      final datedName = '${automaticBackupPrefix}_$timestamp.db';
-      final latestTempPath = path.join(
-        tempDirectory.path,
-        automaticLatestBackupName,
-      );
-
-      // saveFile consumes its temporary source file, so create a second
-      // temporary copy for the latest backup.
-      latestTempFile = await validatedBackup.copy(latestTempPath);
-
-      final datedResult = await _mediaStore.saveFile(
-        tempFilePath: validatedBackup.path,
-        dirType: DirType.download,
-        dirName: DirName.download,
+      final rootPath = DirType.download.fullPath(
         relativePath: automaticBackupRelativePath,
+        dirName: DirName.download,
       );
 
-      if (datedResult == null) {
-        throw Exception(
-          'Could not save the weekly backup to shared Downloads storage.',
+      final directory = Directory(rootPath);
+
+      if (!await directory.exists()) {
+        print(
+          'Automatic backup directory does not exist yet: '
+          '$rootPath',
         );
+
+        return;
       }
 
-      final latestResult = await _mediaStore.saveFile(
-        tempFilePath: latestTempFile.path,
-        dirType: DirType.download,
-        dirName: DirName.download,
-        relativePath: automaticBackupRelativePath,
+      // ----------------------------------------------------------
+      // Find dated backup files
+      // ----------------------------------------------------------
+
+      final files = <File>[];
+
+      await for (final entity in directory.list(followLinks: false)) {
+        if (entity is! File) {
+          continue;
+        }
+
+        final fileName = path.basename(entity.path);
+
+        if (_isDatedAutomaticBackup(fileName)) {
+          files.add(entity);
+        }
+      }
+
+      // ----------------------------------------------------------
+      // Sort newest -> oldest
+      //
+      // Filename contains:
+      //
+      // YYYYMMDD_HHMMSS
+      //
+      // Therefore lexical sorting works correctly.
+      // ----------------------------------------------------------
+
+      files.sort(
+        (a, b) => path.basename(b.path).compareTo(path.basename(a.path)),
       );
 
-      if (latestResult == null) {
-        throw Exception('Could not update the latest backup.');
+      // ----------------------------------------------------------
+      // DELETE EVERYTHING AFTER 12
+      // ----------------------------------------------------------
+
+      if (files.length <= maxAutomaticBackups) {
+        return;
       }
 
-      final prefs = await SharedPreferences.getInstance();
-      final now = DateTime.now();
+      for (int i = maxAutomaticBackups; i < files.length; i++) {
+        final oldFile = files[i];
 
-      await prefs.setString(_lastAutomaticBackupKey, now.toIso8601String());
+        print(
+          'Deleting old automatic backup: '
+          '${path.basename(oldFile.path)}',
+        );
 
-      return AutomaticBackupResult(
-        datedFileName: datedName,
-        latestFileName: automaticLatestBackupName,
-        createdAt: now,
-      );
-    } finally {
-      if (latestTempFile != null) {
-        try {
-          if (await latestTempFile.exists()) {
-            await latestTempFile.delete();
-          }
-        } catch (_) {}
+        await _deleteIfExists(oldFile);
       }
+    } catch (e) {
+      // ----------------------------------------------------------
+      // IMPORTANT:
+      //
+      // Cleanup failure must NOT make the backup itself fail.
+      // ----------------------------------------------------------
+
+      print('Automatic backup cleanup failed: $e');
     }
   }
 
+  // ============================================================
+  // CHECK DATED BACKUP NAME
+  // ============================================================
+
+  bool _isDatedAutomaticBackup(String fileName) {
+    final regex = RegExp(
+      '^${RegExp.escape(automaticBackupPrefix)}_'
+      r'\d{8}_\d{6}\.db$',
+    );
+
+    return regex.hasMatch(fileName);
+  }
+
+  // ============================================================
+  // LAST AUTOMATIC BACKUP
+  // ============================================================
+
   Future<DateTime?> getLastAutomaticBackupTime() async {
     final prefs = await SharedPreferences.getInstance();
+
     final value = prefs.getString(_lastAutomaticBackupKey);
 
     if (value == null || value.isEmpty) {
@@ -326,7 +482,7 @@ class BackupRestoreService {
 
   Future<void> restoreDatabase(File backupFile) async {
     // ----------------------------------------------------------
-    // CHECK BACKUP EXISTS
+    // CHECK BACKUP
     // ----------------------------------------------------------
 
     if (!await backupFile.exists()) {
@@ -340,7 +496,7 @@ class BackupRestoreService {
     }
 
     // ----------------------------------------------------------
-    // VALIDATE BACKUP BEFORE TOUCHING CURRENT DATABASE
+    // VALIDATE BACKUP
     // ----------------------------------------------------------
 
     await _validateBackupDatabase(backupFile);
@@ -360,8 +516,6 @@ class BackupRestoreService {
 
       // --------------------------------------------------------
       // CREATE EMERGENCY BACKUP
-      //
-      // If restore fails, we can restore the current database.
       // --------------------------------------------------------
 
       if (await currentDatabaseFile.exists()) {
@@ -377,7 +531,7 @@ class BackupRestoreService {
       }
 
       // --------------------------------------------------------
-      // REMOVE CURRENT SQLITE AUXILIARY FILES
+      // DELETE WAL / SHM
       // --------------------------------------------------------
 
       await _deleteIfExists(File('$currentDatabasePath-wal'));
@@ -385,7 +539,7 @@ class BackupRestoreService {
       await _deleteIfExists(File('$currentDatabasePath-shm'));
 
       // --------------------------------------------------------
-      // REMOVE CURRENT DATABASE
+      // DELETE CURRENT DATABASE
       // --------------------------------------------------------
 
       await _deleteIfExists(currentDatabaseFile);
@@ -396,37 +550,30 @@ class BackupRestoreService {
 
       await backupFile.copy(currentDatabasePath);
 
-      // --------------------------------------------------------
-      // MAKE SURE RESTORED FILE EXISTS
-      // --------------------------------------------------------
-
       if (!await currentDatabaseFile.exists()) {
         throw Exception('Restored database file could not be created.');
       }
 
       // --------------------------------------------------------
-      // OPEN RESTORED DATABASE
-      //
-      // DatabaseHelper will automatically run migrations if
-      // backup DB version is lower than current app DB version.
+      // REOPEN DATABASE
       // --------------------------------------------------------
 
       final restoredDb = await _databaseHelper.reopenDatabase();
 
       // --------------------------------------------------------
-      // BASIC SQLITE TEST
+      // BASIC TEST
       // --------------------------------------------------------
 
       await restoredDb.rawQuery('SELECT name FROM sqlite_master LIMIT 1');
 
       // --------------------------------------------------------
-      // CHECK DATABASE TABLES
+      // VALIDATE TABLES
       // --------------------------------------------------------
 
       await _validateOpenedDatabase(restoredDb);
 
       // --------------------------------------------------------
-      // RESTORE SUCCESSFUL
+      // DELETE EMERGENCY COPY
       // --------------------------------------------------------
 
       if (emergencyBackupPath != null) {
@@ -434,14 +581,17 @@ class BackupRestoreService {
       }
     } catch (e) {
       // --------------------------------------------------------
-      // RESTORE FAILED
+      // CLOSE FAILED DATABASE
       // --------------------------------------------------------
 
       try {
         await _databaseHelper.closeDatabase();
       } catch (_) {}
 
-      // Remove corrupted/partially restored DB.
+      // --------------------------------------------------------
+      // DELETE FAILED DATABASE
+      // --------------------------------------------------------
+
       await _deleteIfExists(currentDatabaseFile);
 
       await _deleteIfExists(File('$currentDatabasePath-wal'));
@@ -449,7 +599,7 @@ class BackupRestoreService {
       await _deleteIfExists(File('$currentDatabasePath-shm'));
 
       // --------------------------------------------------------
-      // RESTORE EMERGENCY BACKUP
+      // RESTORE EMERGENCY COPY
       // --------------------------------------------------------
 
       if (emergencyBackupPath != null) {
@@ -461,7 +611,7 @@ class BackupRestoreService {
       }
 
       // --------------------------------------------------------
-      // TRY TO OPEN ORIGINAL DATABASE AGAIN
+      // REOPEN ORIGINAL
       // --------------------------------------------------------
 
       try {
@@ -473,7 +623,7 @@ class BackupRestoreService {
   }
 
   // ============================================================
-  // VALIDATE BACKUP FILE
+  // VALIDATE BACKUP DATABASE
   // ============================================================
 
   Future<void> _validateBackupDatabase(File backupFile) async {
@@ -491,13 +641,13 @@ class BackupRestoreService {
 
     try {
       // --------------------------------------------------------
-      // COPY BACKUP TO TEMPORARY LOCATION
+      // COPY BACKUP
       // --------------------------------------------------------
 
       await backupFile.copy(validationPath);
 
       // --------------------------------------------------------
-      // OPEN SQLITE DATABASE
+      // OPEN READ ONLY
       // --------------------------------------------------------
 
       testDatabase = await openDatabase(validationPath, readOnly: true);
@@ -511,13 +661,19 @@ class BackupRestoreService {
       );
 
       if (integrityResult.isEmpty) {
-        throw Exception('Backup database integrity check returned no result.');
+        throw Exception(
+          'Backup database integrity check '
+          'returned no result.',
+        );
       }
 
       final integrityValue = integrityResult.first.values.first.toString();
 
       if (integrityValue.toLowerCase() != 'ok') {
-        throw Exception('Backup database failed SQLite integrity check.');
+        throw Exception(
+          'Backup database failed SQLite '
+          'integrity check.',
+        );
       }
 
       // --------------------------------------------------------
@@ -537,7 +693,7 @@ class BackupRestoreService {
           .toSet();
 
       // --------------------------------------------------------
-      // REQUIRED BHKTICHART TABLES
+      // REQUIRED TABLES
       // --------------------------------------------------------
 
       const requiredTables = <String>{'users', 'daily_sadhana'};
@@ -548,13 +704,15 @@ class BackupRestoreService {
 
       if (missingTables.isNotEmpty) {
         throw Exception(
-          'This file does not appear to be a Bhaktichart backup.\n\n'
-          'Missing table(s): ${missingTables.join(', ')}',
+          'This file does not appear to be '
+          'a BhaktiChart backup.\n\n'
+          'Missing table(s): '
+          '${missingTables.join(', ')}',
         );
       }
     } finally {
       // --------------------------------------------------------
-      // CLOSE TEMP DATABASE
+      // CLOSE VALIDATION DATABASE
       // --------------------------------------------------------
 
       try {
@@ -562,7 +720,7 @@ class BackupRestoreService {
       } catch (_) {}
 
       // --------------------------------------------------------
-      // REMOVE TEMP DATABASE
+      // DELETE TEMP FILES
       // --------------------------------------------------------
 
       await _deleteIfExists(validationFile);
@@ -591,11 +749,17 @@ class BackupRestoreService {
         .toSet();
 
     if (!tableNames.contains('users')) {
-      throw Exception('Restored database is missing the users table.');
+      throw Exception(
+        'Restored database is missing '
+        'the users table.',
+      );
     }
 
     if (!tableNames.contains('daily_sadhana')) {
-      throw Exception('Restored database is missing the daily_sadhana table.');
+      throw Exception(
+        'Restored database is missing '
+        'the daily_sadhana table.',
+      );
     }
   }
 
@@ -608,8 +772,11 @@ class BackupRestoreService {
       if (await file.exists()) {
         await file.delete();
       }
-    } catch (_) {
-      // Ignore cleanup errors.
+    } catch (e) {
+      print(
+        'Could not delete file '
+        '${file.path}: $e',
+      );
     }
   }
 

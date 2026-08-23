@@ -366,9 +366,76 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                         decoration: InputDecoration(
                           labelText: 'Book name',
                           hintText: 'e.g. Bhagavad Gita',
+
+                          // ----------------------------------------------------------
+                          // Background
+                          // ----------------------------------------------------------
                           filled: true,
                           fillColor: colorScheme.surfaceContainerHighest
                               .withOpacity(0.35),
+
+                          // ----------------------------------------------------------
+                          // Normal border
+                          // ----------------------------------------------------------
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(
+                              color: colorScheme.outline.withOpacity(0.45),
+                              width: 1,
+                            ),
+                          ),
+
+                          // ----------------------------------------------------------
+                          // Focused border
+                          // ----------------------------------------------------------
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(
+                              color: colorScheme.primary,
+                              width: 1.5,
+                            ),
+                          ),
+
+                          // ----------------------------------------------------------
+                          // Error border
+                          // ----------------------------------------------------------
+                          errorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(
+                              color: colorScheme.error,
+                              width: 1,
+                            ),
+                          ),
+
+                          // ----------------------------------------------------------
+                          // Focused error border
+                          // ----------------------------------------------------------
+                          focusedErrorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(
+                              color: colorScheme.error,
+                              width: 1.5,
+                            ),
+                          ),
+
+                          // ----------------------------------------------------------
+                          // Default border fallback
+                          // ----------------------------------------------------------
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(
+                              color: colorScheme.outline.withOpacity(0.45),
+                              width: 1,
+                            ),
+                          ),
+
+                          // ----------------------------------------------------------
+                          // Input padding
+                          // ----------------------------------------------------------
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 14,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -2047,7 +2114,28 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+                      borderSide: BorderSide(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.outline.withOpacity(0.5),
+                        width: 1,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.outline.withOpacity(0.5),
+                        width: 1,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 1.5,
+                      ),
                     ),
                   ),
                   items: widget.books
@@ -2095,7 +2183,28 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+                    borderSide: BorderSide(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outline.withOpacity(0.5),
+                      width: 1,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outline.withOpacity(0.5),
+                      width: 1,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 1.5,
+                    ),
                   ),
                 ),
               ),
@@ -2119,7 +2228,28 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+                    borderSide: BorderSide(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outline.withOpacity(0.5),
+                      width: 1,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outline.withOpacity(0.5),
+                      width: 1,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 1.5,
+                    ),
                   ),
                 ),
               ),
@@ -2147,7 +2277,28 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+                    borderSide: BorderSide(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outline.withOpacity(0.5),
+                      width: 1,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outline.withOpacity(0.5),
+                      width: 1,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 1.5,
+                    ),
                   ),
                 ),
               ),

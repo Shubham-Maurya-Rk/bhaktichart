@@ -8,7 +8,10 @@ class DatabaseHelper {
 
   static const String _databaseName = 'bhaktichart.db';
 
-  // Keep version 1 because you will uninstall/reinstall the app.
+  // ============================================================
+  // DO NOT CHANGE DATABASE VERSION
+  // ============================================================
+
   static const int _databaseVersion = 1;
 
   Database? _database;
@@ -18,7 +21,7 @@ class DatabaseHelper {
   // ============================================================
 
   Future<Database> get database async {
-    if (_database != null) {
+    if (_database != null && _database!.isOpen) {
       return _database!;
     }
 
@@ -46,6 +49,9 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
+
+      // IMPORTANT:
+      // Keep this as version 1.
       version: _databaseVersion,
 
       onConfigure: (db) async {
@@ -94,8 +100,11 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+
         name TEXT NOT NULL,
+
         created_at TEXT NOT NULL,
+
         updated_at TEXT
       )
     ''');
@@ -166,10 +175,15 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE sadhana_types (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+
         name TEXT NOT NULL UNIQUE,
+
         icon TEXT,
+
         is_active INTEGER NOT NULL DEFAULT 1,
+
         sort_order INTEGER NOT NULL DEFAULT 0,
+
         created_at TEXT NOT NULL
       )
     ''');
@@ -437,23 +451,43 @@ class DatabaseHelper {
 
     // ==========================================================
     // DAILY TODO TASKS
+    //
+    // IMPORTANT:
+    //
+    // One database row = one task.
+    //
+    // Tasks are NOT duplicated every day.
+    //
+    // completion_date tells us when the current completion
+    // status was last updated.
+    //
+    // Example:
+    //
+    // 2026-08-23 -> completed = 1
+    //
+    // On 2026-08-24 the repository changes:
+    //
+    // completed = 0
+    // completion_date = 2026-08-24
+    //
+    // The same task row remains in the database.
     // ==========================================================
 
     await db.execute('''
       CREATE TABLE daily_todo_tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-        task_key TEXT NOT NULL UNIQUE,
+        id TEXT PRIMARY KEY,
 
         title TEXT NOT NULL,
 
-        description TEXT,
+        description TEXT NOT NULL DEFAULT '',
 
         category TEXT NOT NULL DEFAULT 'Morning',
 
         emoji TEXT NOT NULL DEFAULT '🙏',
 
         completed INTEGER NOT NULL DEFAULT 0,
+
+        completion_date TEXT NOT NULL,
 
         sort_order INTEGER NOT NULL DEFAULT 0,
 
@@ -464,18 +498,13 @@ class DatabaseHelper {
     ''');
 
     // ==========================================================
-    // DAILY TODO SETTINGS
+    // DO NOT CREATE daily_todo_settings
+    //
+    // The repository handles the date reset using
+    // completion_date directly in daily_todo_tasks.
+    //
+    // Therefore there is no need for another table.
     // ==========================================================
-
-    await db.execute('''
-      CREATE TABLE daily_todo_settings (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-
-        last_completion_date TEXT NOT NULL,
-
-        updated_at TEXT NOT NULL
-      )
-    ''');
 
     // ==========================================================
     // SAVED LINKS

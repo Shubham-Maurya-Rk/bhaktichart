@@ -84,7 +84,7 @@ class DailyTodoRepository {
   static const String _table = 'daily_todo_tasks';
 
   // ============================================================
-  // DATE
+  // TODAY KEY
   // ============================================================
 
   String get todayKey {
@@ -92,7 +92,12 @@ class DailyTodoRepository {
   }
 
   // ============================================================
-  // GET ALL TASKS
+  // GET TASKS
+  //
+  // Tasks are permanent.
+  //
+  // Only completion status resets when a new day starts.
+  // No daily history is created.
   // ============================================================
 
   Future<List<DailyTodoTask>> getTasks() async {
@@ -111,41 +116,32 @@ class DailyTodoRepository {
   // ============================================================
   // RESET FOR NEW DAY
   //
-  // Same behavior as the old SharedPreferences implementation.
+  // Example:
   //
-  // If the stored completion_date is not today:
-  //     completed = 0
-  //     completion_date = today
+  // Yesterday:
+  // Task A = completed
+  // Task B = completed
   //
-  // No historical records are created.
+  // Today:
+  // Task A = incomplete
+  // Task B = incomplete
+  //
+  // The tasks themselves are NOT deleted.
   // ============================================================
 
   Future<void> _resetForNewDay(Database db) async {
     final today = todayKey;
 
-    await db.transaction((txn) async {
-      final result = await txn.query(
-        _table,
-        columns: ['id'],
-        where: 'completion_date != ?',
-        whereArgs: [today],
-      );
-
-      if (result.isEmpty) {
-        return;
-      }
-
-      await txn.update(
-        _table,
-        {
-          'completed': 0,
-          'completion_date': today,
-          'updated_at': DateTime.now().toIso8601String(),
-        },
-        where: 'completion_date != ?',
-        whereArgs: [today],
-      );
-    });
+    await db.update(
+      _table,
+      {
+        'completed': 0,
+        'completion_date': today,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'completion_date != ? OR completion_date IS NULL',
+      whereArgs: [today],
+    );
   }
 
   // ============================================================
@@ -161,16 +157,24 @@ class DailyTodoRepository {
   }) async {
     final db = await _databaseHelper.database;
 
-    final maxResult = await db.rawQuery('''
-      SELECT MAX(sort_order) AS max_order
-      FROM $_table
-      ''');
+    // Find the highest existing sort order.
+    final maxResult = await db.rawQuery(
+      'SELECT MAX(sort_order) AS max_order FROM $_table',
+    );
 
-    final maxOrder = (maxResult.first['max_order'] as int?) ?? -1;
+    int maxOrder = -1;
+
+    if (maxResult.isNotEmpty) {
+      final value = maxResult.first['max_order'];
+
+      if (value != null) {
+        maxOrder = int.tryParse(value.toString()) ?? -1;
+      }
+    }
 
     final now = DateTime.now().toIso8601String();
 
-    await db.insert(_table, {
+    final task = {
       'id': id,
       'title': title,
       'description': description,
@@ -181,7 +185,9 @@ class DailyTodoRepository {
       'sort_order': maxOrder + 1,
       'created_at': now,
       'updated_at': now,
-    });
+    };
+
+    await db.insert(_table, task, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   // ============================================================
@@ -206,26 +212,15 @@ class DailyTodoRepository {
   }
 
   // ============================================================
-  // TOGGLE COMPLETION
+  // TOGGLE TASK
   // ============================================================
 
   Future<void> toggleTask(DailyTodoTask task) async {
-    final db = await _databaseHelper.database;
-
-    await db.update(
-      _table,
-      {
-        'completed': task.completed ? 0 : 1,
-        'completion_date': todayKey,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [task.id],
-    );
+    await setCompleted(task, !task.completed);
   }
 
   // ============================================================
-  // SET COMPLETION
+  // SET COMPLETED
   // ============================================================
 
   Future<void> setCompleted(DailyTodoTask task, bool completed) async {
@@ -255,6 +250,8 @@ class DailyTodoRepository {
 
   // ============================================================
   // CLEAR COMPLETED
+  //
+  // This permanently deletes completed tasks.
   // ============================================================
 
   Future<void> clearCompleted() async {
@@ -278,19 +275,19 @@ class DailyTodoRepository {
   }
 
   // ============================================================
-  // REORDER
-  //
-  // Receives the complete task order and saves sort_order.
+  // REORDER TASKS
   // ============================================================
 
   Future<void> reorderTasks(List<DailyTodoTask> tasks) async {
     final db = await _databaseHelper.database;
 
     await db.transaction((txn) async {
+      final now = DateTime.now().toIso8601String();
+
       for (int i = 0; i < tasks.length; i++) {
         await txn.update(
           _table,
-          {'sort_order': i, 'updated_at': DateTime.now().toIso8601String()},
+          {'sort_order': i, 'updated_at': now},
           where: 'id = ?',
           whereArgs: [tasks[i].id],
         );
