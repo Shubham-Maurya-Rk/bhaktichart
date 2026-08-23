@@ -1742,7 +1742,7 @@ class _LearningTrackerScreenState extends State<LearningTrackerScreen> {
                 shloka.shloka,
                 style: theme.textTheme.bodyLarge?.copyWith(
                   // height: 2.1,
-                  fontSize: 16,
+                  fontSize: 15,
                   letterSpacing: 0.3,
                   fontWeight: FontWeight.w500,
                 ),
@@ -2316,7 +2316,26 @@ class _ShlokaDialogContentState extends State<_ShlokaDialogContent> {
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 1.5,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outline.withOpacity(0.5),
+                      width: 1,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 1.5,
+                    ),
                   ),
                   helperText: 'Optional. Appears in the shloka options menu.',
                 ),

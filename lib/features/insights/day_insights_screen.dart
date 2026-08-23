@@ -1337,26 +1337,24 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                 Expanded(
                   child: _buildTimeEditCard(
                     context,
-                    title: 'Wake up',
-                    icon: Icons.wb_sunny_rounded,
-                    iconColor: Colors.orange,
-                    time: _editWakeTime,
-                    onTap: _pickWakeTime,
-                    onClear: _editWakeTime == null ? null : _clearWakeTime,
-                  ),
-                ),
-
-                const SizedBox(width: 10),
-
-                Expanded(
-                  child: _buildTimeEditCard(
-                    context,
                     title: 'Sleep',
                     icon: Icons.nightlight_round,
                     iconColor: Colors.indigo,
                     time: _editSleepTime,
                     onTap: _pickSleepTime,
                     onClear: _editSleepTime == null ? null : _clearSleepTime,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildTimeEditCard(
+                    context,
+                    title: 'Wake up',
+                    icon: Icons.wb_sunny_rounded,
+                    iconColor: Colors.orange,
+                    time: _editWakeTime,
+                    onTap: _pickWakeTime,
+                    onClear: _editWakeTime == null ? null : _clearWakeTime,
                   ),
                 ),
               ],
@@ -2159,21 +2157,6 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                   Expanded(
                     child: _buildRoutineTimeCard(
                       context,
-                      icon: Icons.wb_sunny_rounded,
-                      iconColor: Colors.orange,
-                      title: 'Wake up',
-                      value: wake == null
-                          ? '--'
-                          : DailyRoutine.formatTime(wake),
-                      goal: wakeGoal,
-                    ),
-                  ),
-
-                  const SizedBox(width: 10),
-
-                  Expanded(
-                    child: _buildRoutineTimeCard(
-                      context,
                       icon: Icons.nightlight_round,
                       iconColor: Colors.indigo,
                       title: 'Sleep',
@@ -2181,6 +2164,19 @@ class _DayInsightsScreenState extends State<DayInsightsScreen> {
                           ? '--'
                           : DailyRoutine.formatTime(sleep),
                       goal: sleepGoal,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildRoutineTimeCard(
+                      context,
+                      icon: Icons.wb_sunny_rounded,
+                      iconColor: Colors.orange,
+                      title: 'Wake up',
+                      value: wake == null
+                          ? '--'
+                          : DailyRoutine.formatTime(wake),
+                      goal: wakeGoal,
                     ),
                   ),
                 ],

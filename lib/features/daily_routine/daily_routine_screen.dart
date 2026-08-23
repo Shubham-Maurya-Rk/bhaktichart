@@ -440,30 +440,6 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                 children: [
                   _goalTimePickerRow(
                     context: context,
-                    icon: Icons.wb_sunny_rounded,
-                    title: 'Wake-up goal',
-                    value: wakeText,
-                    onTap: () async {
-                      final picked = await showTimePicker(
-                        context: context,
-                        initialTime: TimeOfDay(
-                          hour: wakeHour,
-                          minute: wakeMinute,
-                        ),
-                        helpText: 'Wake-up goal',
-                      );
-
-                      if (picked == null) return;
-
-                      setDialogState(() {
-                        wakeHour = picked.hour;
-                        wakeMinute = picked.minute;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _goalTimePickerRow(
-                    context: context,
                     icon: Icons.nightlight_round,
                     title: 'Sleep goal',
                     value: sleepText,
@@ -482,6 +458,30 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                       setDialogState(() {
                         sleepHour = picked.hour;
                         sleepMinute = picked.minute;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _goalTimePickerRow(
+                    context: context,
+                    icon: Icons.wb_sunny_rounded,
+                    title: 'Wake-up goal',
+                    value: wakeText,
+                    onTap: () async {
+                      final picked = await showTimePicker(
+                        context: context,
+                        initialTime: TimeOfDay(
+                          hour: wakeHour,
+                          minute: wakeMinute,
+                        ),
+                        helpText: 'Wake-up goal',
+                      );
+
+                      if (picked == null) return;
+
+                      setDialogState(() {
+                        wakeHour = picked.hour;
+                        wakeMinute = picked.minute;
                       });
                     },
                   ),
@@ -812,22 +812,6 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                   Expanded(
                     child: _timeCard(
                       context: context,
-                      icon: Icons.wb_sunny_rounded,
-                      iconColor: Colors.orange,
-                      title: 'Wake up',
-                      value: wake == null
-                          ? '--'
-                          : DailyRoutine.formatTime(wake),
-                      goal: _goal == null ? null : _goal!.wakeUpTimeText,
-                      onTap: _isBeyondTomorrow(_selectedDay)
-                          ? null
-                          : _selectWakeUpTime,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _timeCard(
-                      context: context,
                       icon: Icons.nightlight_round,
                       iconColor: Colors.indigo,
                       title: 'Sleep',
@@ -838,6 +822,22 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                       onTap: _isBeyondTomorrow(_selectedDay)
                           ? null
                           : _selectSleepTime,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _timeCard(
+                      context: context,
+                      icon: Icons.wb_sunny_rounded,
+                      iconColor: Colors.orange,
+                      title: 'Wake up',
+                      value: wake == null
+                          ? '--'
+                          : DailyRoutine.formatTime(wake),
+                      goal: _goal == null ? null : _goal!.wakeUpTimeText,
+                      onTap: _isBeyondTomorrow(_selectedDay)
+                          ? null
+                          : _selectWakeUpTime,
                     ),
                   ),
                 ],
@@ -1100,142 +1100,6 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
       ),
     );
   }
-
-  // ============================================================
-  // GOAL CARD
-  // ============================================================
-
-  Widget _buildGoalCard(BuildContext context) {
-    final goal = _goal;
-
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.flag_rounded),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Daily Goals',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Edit goals',
-                  onPressed: _editGoals,
-                  icon: const Icon(Icons.edit_rounded),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            Row(
-              children: [
-                Expanded(
-                  child: _goalBox(
-                    context,
-                    icon: Icons.wb_sunny_rounded,
-                    color: Colors.orange,
-                    title: 'Wake-up',
-                    value: goal?.wakeUpTimeText ?? '6:00 AM',
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _goalBox(
-                    context,
-                    icon: Icons.nightlight_round,
-                    color: Colors.indigo,
-                    title: 'Sleep',
-                    value: goal?.sleepTimeText ?? '10:00 PM',
-                  ),
-                ),
-              ],
-            ),
-
-            if (_goalSleepDuration != null) ...[
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.primary.withOpacity(0.06),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.hourglass_bottom_rounded,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Target sleep duration',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    Text(
-                      _formatDuration(_goalSleepDuration!),
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _goalBox(
-    BuildContext context, {
-    required IconData icon,
-    required Color color,
-    required String title,
-    required String value,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        color: color.withOpacity(0.08),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ============================================================
   // GOAL SLEEP DURATION
   // ============================================================
@@ -2466,13 +2330,6 @@ class _DailyRoutineScreenState extends State<DailyRoutineScreen> {
                     ),
 
                     const SizedBox(height: 14),
-
-                    // ==================================================
-                    // GOALS
-                    // ==================================================
-                    _buildGoalCard(context),
-
-                    const SizedBox(height: 24),
 
                     // ==================================================
                     // STATISTICS
