@@ -651,6 +651,41 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ============================================================
+  // READING MEASUREMENT
+  // ============================================================
+  //
+  // Returns the Reading value corresponding to a Reading unit.
+  //
+  // This also supports older Reading records that only have
+  // value + unit.
+  // ============================================================
+
+  double _getReadingMeasurement(DailySadhanaModel? record, String unit) {
+    if (record == null) {
+      return 0.0;
+    }
+
+    switch (unit.toLowerCase().trim()) {
+      case 'page':
+      case 'pages':
+        return record.readingPages ?? record.value;
+
+      case 'shloka':
+      case 'shlokas':
+      case 'verse':
+      case 'verses':
+        return record.readingVerses ?? record.value;
+
+      case 'minute':
+      case 'minutes':
+        return record.readingMinutes ?? record.value;
+
+      default:
+        return record.value;
+    }
+  }
+
+  // ============================================================
   // TODAY AARTI COUNT
   // ============================================================
 
@@ -753,7 +788,17 @@ class _HomeScreenState extends State<HomeScreen> {
         ? 0.0
         : _getTodayValueForType(chanting);
 
-    final readingValue = reading == null ? 0.0 : _getTodayValueForType(reading);
+    final readingRecord = _getTodayRecordForType(reading);
+
+    final readingPages = _getReadingMeasurement(readingRecord, 'pages');
+
+    final readingVerses = _getReadingMeasurement(readingRecord, 'verses');
+
+    final readingMinutes = _getReadingMeasurement(readingRecord, 'minutes');
+
+    // Keep the existing Reading goal/progress behavior based on pages.
+    // This preserves the current default Reading goal of 10 pages.
+    final readingValue = readingPages;
 
     final hearingValue = hearing == null ? 0.0 : _getTodayValueForType(hearing);
 
@@ -766,6 +811,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final chantingUnit = _getTodayUnitForType(chanting, fallback: 'rounds');
 
     final readingUnit = _getTodayUnitForType(reading, fallback: 'pages');
+    final readingDetails = readingRecord == null
+        ? null
+        : '${_formatValue(readingVerses)} verses • '
+              '${_formatValue(readingMinutes)} minutes';
 
     final hearingUnit = _getTodayUnitForType(hearing, fallback: 'minutes');
 
@@ -858,8 +907,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     context,
                     icon: '📖',
                     title: 'Reading',
-                    value: _formatValue(readingValue),
-                    unit: readingUnit,
+                    value: _formatValue(readingPages),
+                    unit: 'pages',
+                    secondaryValue: readingRecord == null
+                        ? null
+                        : '${_formatValue(readingVerses)} verses • '
+                              '${_formatValue(readingMinutes)} minutes',
                     completed: readingCompleted,
                     goal: readingGoal,
                     onTap: reading == null
@@ -951,6 +1004,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String unit,
     required bool completed,
     required GoalModel? goal,
+    String? secondaryValue,
     VoidCallback? onTap,
   }) {
     final theme = Theme.of(context);
@@ -1047,7 +1101,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
+              // ------------------------------------------------------
+              // ADDITIONAL READING VALUES
+              // ------------------------------------------------------
 
+              if (secondaryValue != null &&
+                  secondaryValue.trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+
+                Text(
+                  secondaryValue,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
               // ------------------------------------------------------
               // GOAL PROGRESS
               // ------------------------------------------------------
@@ -1556,6 +1626,10 @@ class _HomeScreenState extends State<HomeScreen> {
   // VALUE SADHANA SHEET
   // ============================================================
 
+  // ============================================================
+  // VALUE SADHANA SHEET
+  // ============================================================
+
   Future<void> _showValueSadhanaSheet(
     DateTime day,
     SadhanaTypeModel type,
@@ -1568,25 +1642,87 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final existingNote = await _repository.getDayNote(_userId!, _dateKey(day));
 
-    String selectedReadingUnit = 'pages';
+    final isReading = type.name.toLowerCase() == 'reading';
 
-    if (type.name.toLowerCase() == 'reading') {
-      if (existing != null &&
-          existing.unit != null &&
-          existing.unit!.isNotEmpty) {
-        selectedReadingUnit = existing.unit!;
-      } else {
-        final settings = await _repository.getReadingSettings(_userId!);
+    // ============================================================
+    // READING CONTROLLERS
+    // ============================================================
 
-        selectedReadingUnit = settings?.unit ?? 'pages';
-      }
-    }
+    final readingPagesController = TextEditingController(
+      text: existing?.readingPages != null
+          ? _formatValue(existing!.readingPages!)
+          : '',
+    );
+
+    final readingVersesController = TextEditingController(
+      text: existing?.readingVerses != null
+          ? _formatValue(existing!.readingVerses!)
+          : '',
+    );
+
+    final readingMinutesController = TextEditingController(
+      text: existing?.readingMinutes != null
+          ? _formatValue(existing!.readingMinutes!)
+          : '',
+    );
+
+    // ============================================================
+    // EXISTING GENERIC SADHANA CONTROLLER
+    // ============================================================
+    //
+    // This is still used by:
+    //
+    // Chanting
+    // Hearing
+    // Any other value-based Sadhana
+    //
+    // For old Reading records created before this change,
+    // we also use this to migrate the old single value into
+    // the appropriate Reading field.
+    // ============================================================
 
     final controller = TextEditingController(
       text: existing != null && existing.value > 0
           ? _formatValue(existing.value)
           : '',
     );
+
+    // ============================================================
+    // BACKWARD COMPATIBILITY FOR OLD READING RECORDS
+    // ============================================================
+    //
+    // If an old Reading record exists with:
+    //
+    // value = 10
+    // unit = pages
+    //
+    // and the new reading_pages field is null,
+    // populate the Pages field from the old value.
+    //
+    // Same for shlokas/minutes.
+    // ============================================================
+
+    if (isReading && existing != null && existing.value > 0) {
+      final oldUnit = existing.unit?.toLowerCase().trim();
+
+      if (oldUnit == 'pages' && existing.readingPages == null) {
+        readingPagesController.text = _formatValue(existing.value);
+      }
+
+      if ((oldUnit == 'shlokas' || oldUnit == 'shloka') &&
+          existing.readingVerses == null) {
+        readingVersesController.text = _formatValue(existing.value);
+      }
+
+      if ((oldUnit == 'minutes' || oldUnit == 'minute') &&
+          existing.readingMinutes == null) {
+        readingMinutesController.text = _formatValue(existing.value);
+      }
+    }
+
+    // ============================================================
+    // DAY NOTE
+    // ============================================================
 
     final noteController = TextEditingController(
       text: existingNote?.note ?? '',
@@ -1597,8 +1733,15 @@ class _HomeScreenState extends State<HomeScreen> {
     bool isEkadashi = existingNote?.isEkadashi ?? false;
     bool isFestival = existingNote?.isFestival ?? false;
 
+    // ============================================================
+    // MOUNT CHECK
+    // ============================================================
+
     if (!mounted) {
       controller.dispose();
+      readingPagesController.dispose();
+      readingVersesController.dispose();
+      readingMinutesController.dispose();
       noteController.dispose();
       return;
     }
@@ -1612,23 +1755,29 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (context, setSheetState) {
             final theme = Theme.of(context);
 
-            final isReading = type.name.toLowerCase() == 'reading';
+            final unit = _getDefaultUnitForType(type);
 
-            final unit = isReading
-                ? selectedReadingUnit
-                : _getDefaultUnitForType(type);
+            // ======================================================
+            // HEADER VALUE
+            // ======================================================
+            //
+            // For Reading we temporarily use Pages as the primary
+            // display value for the existing generic header.
+            //
+            // The actual three Reading values are stored separately.
+            // ======================================================
 
-            final value = existing?.value ?? 0.0;
+            final double headerValue;
+
+            if (isReading) {
+              headerValue = existing?.readingPages ?? 0.0;
+            } else {
+              headerValue = existing?.value ?? 0.0;
+            }
 
             final goal = _goals[type.id!] ?? _currentGoal;
 
-            String? actualUnit;
-
-            if (isReading) {
-              actualUnit = selectedReadingUnit;
-            } else {
-              actualUnit = unit;
-            }
+            final String? actualUnit = isReading ? 'pages' : unit;
 
             return SafeArea(
               child: SingleChildScrollView(
@@ -1641,90 +1790,183 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // ==================================================
+                    // SADHANA SWITCHER
+                    // ==================================================
+
                     _buildBottomSheetSadhanaSwitcher(context, day, type),
 
                     const SizedBox(height: 12),
 
+                    // ==================================================
+                    // DAY DETAIL HEADER
+                    // ==================================================
                     _buildDayDetailHeader(
                       context,
                       day,
                       type,
-                      value,
+                      headerValue,
                       goal,
                       actualUnit,
                     ),
 
                     const SizedBox(height: 24),
 
+                    // ==================================================
+                    // READING
+                    // ==================================================
                     if (isReading) ...[
                       Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'Reading measured in',
-                          style: theme.textTheme.labelLarge,
+                          'Reading',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      // ------------------------------------------------
+                      // PAGES
+                      // ------------------------------------------------
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Pages',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
 
                       const SizedBox(height: 8),
 
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment<String>(
-                              value: 'pages',
-                              label: Text('Pages'),
-                              icon: Icon(Icons.menu_book),
-                            ),
-                            ButtonSegment<String>(
-                              value: 'shlokas',
-                              label: Text('Shlokas'),
-                              icon: Icon(Icons.format_quote),
-                            ),
-                            ButtonSegment<String>(
-                              value: 'minutes',
-                              label: Text('Minutes'),
-                              icon: Icon(Icons.timer_outlined),
-                            ),
-                          ],
-                          selected: {selectedReadingUnit},
-                          onSelectionChanged: (values) {
-                            if (values.isEmpty) {
-                              return;
-                            }
-
-                            setSheetState(() {
-                              selectedReadingUnit = values.first;
-                            });
-                          },
+                      TextField(
+                        controller: readingPagesController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '0',
+                          suffixText: 'pages',
+                          prefixIcon: const Icon(Icons.menu_book_outlined),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
                       ),
 
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
+
+                      // ------------------------------------------------
+                      // VERSES
+                      // ------------------------------------------------
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Verses / Shlokas',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      TextField(
+                        controller: readingVersesController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '0',
+                          suffixText: 'verses',
+                          prefixIcon: const Icon(Icons.format_quote_outlined),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // ------------------------------------------------
+                      // MINUTES
+                      // ------------------------------------------------
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Reading Time',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      TextField(
+                        controller: readingMinutesController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '0',
+                          suffixText: 'minutes',
+                          prefixIcon: const Icon(Icons.timer_outlined),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                      ),
+                    ] else ...[
+                      // ==================================================
+                      // EXISTING UI FOR NON-READING SADHANA
+                      // ==================================================
+
+                      TextField(
+                        controller: controller,
+                        autofocus: true,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '0',
+                          suffixText: unit,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                      ),
                     ],
-
-                    TextField(
-                      controller: controller,
-                      autofocus: true,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: '0',
-                        suffixText: unit,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                    ),
 
                     const SizedBox(height: 16),
 
+                    // ==================================================
+                    // DAY TYPE SELECTOR
+                    // ==================================================
                     _buildDayTypeSelector(
                       context: context,
                       isStarred: isStarred,
@@ -1755,6 +1997,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 8),
 
+                    // ==================================================
+                    // NOTE
+                    // ==================================================
                     TextField(
                       controller: noteController,
                       maxLines: 3,
@@ -1770,11 +2015,170 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 20),
 
+                    // ==================================================
+                    // SAVE
+                    // ==================================================
                     SizedBox(
                       width: double.infinity,
                       height: 52,
                       child: FilledButton.icon(
                         onPressed: () async {
+                          // =================================================
+                          // READING SAVE
+                          // =================================================
+
+                          if (isReading) {
+                            final pagesText = readingPagesController.text
+                                .trim();
+
+                            final versesText = readingVersesController.text
+                                .trim();
+
+                            final minutesText = readingMinutesController.text
+                                .trim();
+
+                            final pages = pagesText.isEmpty
+                                ? null
+                                : double.tryParse(pagesText);
+
+                            final verses = versesText.isEmpty
+                                ? null
+                                : double.tryParse(versesText);
+
+                            final minutes = minutesText.isEmpty
+                                ? null
+                                : double.tryParse(minutesText);
+
+                            // -----------------------------------------------
+                            // VALIDATION
+                            // -----------------------------------------------
+
+                            if ((pagesText.isNotEmpty && pages == null) ||
+                                (versesText.isNotEmpty && verses == null) ||
+                                (minutesText.isNotEmpty && minutes == null)) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Please enter valid numbers'),
+                                ),
+                              );
+                              return;
+                            }
+
+                            if ((pages != null && pages < 0) ||
+                                (verses != null && verses < 0) ||
+                                (minutes != null && minutes < 0)) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Values cannot be negative'),
+                                ),
+                              );
+                              return;
+                            }
+
+                            // -----------------------------------------------
+                            // AT LEAST ONE VALUE
+                            // -----------------------------------------------
+
+                            if (pages == null &&
+                                verses == null &&
+                                minutes == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Please enter at least one reading value',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+
+                            final now = DateTime.now().toIso8601String();
+
+                            // -----------------------------------------------
+                            // BACKWARD COMPATIBILITY
+                            // -----------------------------------------------
+                            //
+                            // Keep value/unit populated using Pages when
+                            // available. This prevents existing parts of the
+                            // application from suddenly seeing value = 0.
+                            //
+                            // If Pages is not entered, use Verses.
+                            // If neither exists, use Minutes.
+                            // -----------------------------------------------
+
+                            double legacyValue = 0.0;
+                            String legacyUnit = 'pages';
+
+                            if (pages != null) {
+                              legacyValue = pages;
+                              legacyUnit = 'pages';
+                            } else if (verses != null) {
+                              legacyValue = verses;
+                              legacyUnit = 'shlokas';
+                            } else if (minutes != null) {
+                              legacyValue = minutes;
+                              legacyUnit = 'minutes';
+                            }
+
+                            final sadhana = DailySadhanaModel(
+                              userId: _userId!,
+                              date: _dateKey(day),
+                              sadhanaTypeId: type.id!,
+
+                              // Existing fields
+                              value: legacyValue,
+                              unit: legacyUnit,
+
+                              // New Reading fields
+                              readingPages: pages,
+                              readingVerses: verses,
+                              readingMinutes: minutes,
+
+                              createdAt: now,
+                              updatedAt: now,
+                            );
+
+                            await _repository.saveSadhana(sadhana);
+
+                            // -----------------------------------------------
+                            // SAVE NOTE
+                            // -----------------------------------------------
+
+                            final note = DayNoteModel(
+                              userId: _userId!,
+                              date: _dateKey(day),
+
+                              isStarred: isStarred,
+                              isSankirtan: isSankirtan,
+                              isEkadashi: isEkadashi,
+                              isFestival: isFestival,
+
+                              note: noteController.text.trim().isEmpty
+                                  ? null
+                                  : noteController.text.trim(),
+
+                              createdAt: existingNote?.createdAt ?? now,
+
+                              updatedAt: now,
+                            );
+
+                            await _repository.saveDayNote(note);
+
+                            await _loadMonthlyData();
+
+                            if (!context.mounted) {
+                              return;
+                            }
+
+                            Navigator.pop(context);
+
+                            return;
+                          }
+
+                          // =================================================
+                          // NON-READING SAVE
+                          // =================================================
+
                           final value = double.tryParse(controller.text.trim());
 
                           if (value == null || value < 0) {
@@ -1792,13 +2196,25 @@ class _HomeScreenState extends State<HomeScreen> {
                             userId: _userId!,
                             date: _dateKey(day),
                             sadhanaTypeId: type.id!,
+
                             value: value,
                             unit: unit,
+
+                            // Reading fields remain empty for
+                            // non-Reading Sadhana.
+                            readingPages: null,
+                            readingVerses: null,
+                            readingMinutes: null,
+
                             createdAt: now,
                             updatedAt: now,
                           );
 
                           await _repository.saveSadhana(sadhana);
+
+                          // -----------------------------------------------
+                          // SAVE NOTE
+                          // -----------------------------------------------
 
                           final note = DayNoteModel(
                             userId: _userId!,
@@ -1813,7 +2229,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ? null
                                 : noteController.text.trim(),
 
-                            createdAt: now,
+                            createdAt: existingNote?.createdAt ?? now,
+
                             updatedAt: now,
                           );
 
@@ -1847,6 +2264,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ============================================================
+  // AARTI SHEET
+  // ============================================================
   // ============================================================
   // AARTI SHEET
   // ============================================================
@@ -3029,21 +3449,12 @@ class _HomeScreenState extends State<HomeScreen> {
     // ----------------------------------------------------------
 
     double chantingTotal = 0;
-    double readingTotal = 0;
+
+    double readingPagesTotal = 0;
+    double readingVersesTotal = 0;
+    double readingMinutesTotal = 0;
+
     double hearingTotal = 0;
-
-    // ----------------------------------------------------------
-    // READING GOAL
-    // ----------------------------------------------------------
-
-    final readingGoal = reading?.id == null ? null : _goals[reading!.id!];
-
-    // Current Reading unit.
-
-    final readingUnit = readingGoal?.unit?.trim().isNotEmpty == true
-        ? readingGoal!.unit!
-        : 'pages';
-
     // ----------------------------------------------------------
     // CALCULATE TOTALS
     // ----------------------------------------------------------
@@ -3066,14 +3477,23 @@ class _HomeScreenState extends State<HomeScreen> {
       // --------------------------------------------------------
 
       if (reading != null && record.sadhanaTypeId == reading.id) {
-        final recordUnit = record.unit?.trim().isNotEmpty == true
-            ? record.unit!.trim()
-            : 'pages';
+        readingPagesTotal +=
+            record.readingPages ??
+            (record.unit?.toLowerCase() == 'pages' ? record.value : 0.0);
 
-        // Only count records using the current Reading unit.
-        if (recordUnit == readingUnit) {
-          readingTotal += record.value;
-        }
+        readingVersesTotal +=
+            record.readingVerses ??
+            ((record.unit?.toLowerCase() == 'shlokas' ||
+                    record.unit?.toLowerCase() == 'shloka')
+                ? record.value
+                : 0.0);
+
+        readingMinutesTotal +=
+            record.readingMinutes ??
+            ((record.unit?.toLowerCase() == 'minutes' ||
+                    record.unit?.toLowerCase() == 'minute')
+                ? record.value
+                : 0.0);
       }
 
       // --------------------------------------------------------
@@ -3142,7 +3562,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 14),
 
             // ----------------------------------------------------
-            // ROW 2
+            // ROW 2 — READING
             // ----------------------------------------------------
             Row(
               children: [
@@ -3150,8 +3570,35 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: _buildStatItem(
                     context,
                     icon: Icons.menu_book_outlined,
-                    value: _formatValue(readingTotal),
-                    label: _formatReadingUnitLabel(readingUnit),
+                    value: _formatValue(readingPagesTotal),
+                    label: 'Pages',
+                  ),
+                ),
+
+                Expanded(
+                  child: _buildStatItem(
+                    context,
+                    icon: Icons.format_quote_outlined,
+                    value: _formatValue(readingVersesTotal),
+                    label: 'Verses',
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            // ----------------------------------------------------
+            // ROW 3 — READING TIME + HEARING
+            // ----------------------------------------------------
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatItem(
+                    context,
+                    icon: Icons.timer_outlined,
+                    value: _formatValue(readingMinutesTotal),
+                    label: 'Reading min',
                   ),
                 ),
 
@@ -3163,26 +3610,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     label: 'Hearing min',
                   ),
                 ),
-              ],
-            ),
-
-            const SizedBox(height: 14),
-
-            // ----------------------------------------------------
-            // ROW 3
-            // ----------------------------------------------------
-            Row(
-              children: [
-                Expanded(
-                  child: _buildStatItem(
-                    context,
-                    icon: Icons.local_fire_department_outlined,
-                    value: '${monthAarti.length}',
-                    label: 'Aarti attendance',
-                  ),
-                ),
-
-                const Expanded(child: SizedBox()),
               ],
             ),
           ],

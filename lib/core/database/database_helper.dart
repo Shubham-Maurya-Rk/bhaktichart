@@ -9,7 +9,13 @@ class DatabaseHelper {
   static const String _databaseName = 'bhaktichart.db';
 
   // ============================================================
-  // DO NOT CHANGE DATABASE VERSION
+  // DATABASE VERSION
+  // ============================================================
+  //
+  // Keep this as version 1.
+  //
+  // We are reinstalling the app, so no database migration is
+  // required for this change.
   // ============================================================
 
   static const int _databaseVersion = 1;
@@ -191,6 +197,25 @@ class DatabaseHelper {
     // ==========================================================
     // DAILY SADHANA
     // ==========================================================
+    //
+    // IMPORTANT:
+    //
+    // One row still represents one Sadhana entry for:
+    //
+    // user + date + sadhana_type
+    //
+    // For Reading, the same row can now store:
+    //
+    //   reading_pages
+    //   reading_verses
+    //   reading_minutes
+    //
+    // All three can exist at the same time.
+    //
+    // Existing value/unit columns are intentionally retained
+    // for compatibility with the current model/repository.
+    // They will be handled in the next code changes.
+    // ==========================================================
 
     await db.execute('''
       CREATE TABLE daily_sadhana (
@@ -205,6 +230,12 @@ class DatabaseHelper {
         value REAL NOT NULL DEFAULT 0,
 
         unit TEXT,
+
+        reading_pages REAL,
+
+        reading_verses REAL,
+
+        reading_minutes REAL,
 
         created_at TEXT NOT NULL,
 

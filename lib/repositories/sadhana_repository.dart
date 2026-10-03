@@ -174,8 +174,16 @@ class SadhanaRepository {
       'user_id': sadhana.userId,
       'date': sadhana.date,
       'sadhana_type_id': sadhana.sadhanaTypeId,
+
+      // Existing generic Sadhana fields
       'value': sadhana.value,
       'unit': sadhana.unit,
+
+      // Reading-specific fields
+      'reading_pages': sadhana.readingPages,
+      'reading_verses': sadhana.readingVerses,
+      'reading_minutes': sadhana.readingMinutes,
+
       'created_at': sadhana.createdAt,
       'updated_at': sadhana.updatedAt,
     };
@@ -223,7 +231,12 @@ class SadhanaRepository {
       where: '''
       user_id = ?
       AND sadhana_type_id = ?
-      AND value > 0
+      AND (
+        value > 0
+        OR reading_pages > 0
+        OR reading_verses > 0
+        OR reading_minutes > 0
+      )
     ''',
       whereArgs: [userId, sadhanaTypeId],
       orderBy: 'date ASC',
@@ -420,12 +433,19 @@ class SadhanaRepository {
           'user_id': userId,
           'date': date,
           'sadhana_type_id': record.sadhanaTypeId,
+
+          // Existing generic Sadhana fields
           'value': record.value,
           'unit': record.unit,
+
+          // Reading-specific fields
+          'reading_pages': record.readingPages,
+          'reading_verses': record.readingVerses,
+          'reading_minutes': record.readingMinutes,
+
           'created_at': record.createdAt,
           'updated_at': record.updatedAt,
         };
-
         if (existing.isEmpty) {
           await txn.insert('daily_sadhana', data);
         } else {
